@@ -1,0 +1,6 @@
+rhasspy-asr-kaldi
+rhasspy-silence
+rhasspy-hermes
+paho-mqtt
+flake8
+pylint
