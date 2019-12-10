@@ -181,6 +181,10 @@ class AsrHermesMqtt:
                                 )
                                 self.transcribe(command.audio_data, sessionId)
 
+                                # Reset session (but keep open)
+                                recorder.stop()
+                                recorder.start()
+
             elif msg.topic == AsrStartListening.topic():
                 # hermes/asr/startListening
                 json_payload = json.loads(msg.payload)

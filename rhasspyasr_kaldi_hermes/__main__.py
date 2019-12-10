@@ -79,7 +79,7 @@ def main():
                 _LOGGER.info("Disconnected. Trying to reconnect...")
                 client.reconnect()
             except Exception:
-                logging.exception("on_disconnect")
+                _LOGGER.exception("on_disconnect")
 
         # Connect
         client.on_connect = hermes.on_connect
