@@ -15,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def main():
     """Main method."""
-    parser = argparse.ArgumentParser(prog="rhasspynlu_hermes")
+    parser = argparse.ArgumentParser(prog="rhasspyasr_kaldi_hermes")
     parser.add_argument(
         "--model-dir", required=True, help="Path to Kaldi model directory"
     )
