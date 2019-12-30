@@ -127,7 +127,7 @@ def main():
     try:
         if wav_paths:
             for wav_path in wav_paths:
-                captured_event.reset()
+                captured_event.clear()
 
                 # Send WAV
                 wav_bytes = Path(wav_path).read_bytes()

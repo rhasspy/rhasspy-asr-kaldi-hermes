@@ -1,8 +1,6 @@
 """Command-line interface to rhasspyasr-kaldi-hermes"""
 import argparse
 import logging
-import threading
-import time
 import os
 
 import paho.mqtt.client as mqtt
@@ -25,19 +23,15 @@ def main():
         help="Path to directory with HCLG.fst (defaults to model_dir/graph)",
     )
     parser.add_argument(
-        "--reload",
-        type=float,
-        default=None,
-        help="Poll HCLG.fst for given number of seconds and automatically reload when changed",
-    )
-    parser.add_argument(
         "--host", default="localhost", help="MQTT host (default: localhost)"
     )
     parser.add_argument(
         "--port", type=int, default=1883, help="MQTT port (default: 1883)"
     )
     parser.add_argument(
-        "--siteId", default="default", help="Hermes siteId of this server"
+        "--siteId",
+        action="append",
+        help="Hermes siteId(s) to listen for (default: all)",
     )
     parser.add_argument(
         "--debug", action="store_true", help="Print DEBUG messages to the console"
@@ -59,19 +53,13 @@ def main():
         _LOGGER.debug(
             "Loading Kaldi model from %s (graph=%s)", args.model_dir, args.graph_dir
         )
-        transcriber = KaldiExtensionTranscriber(args.model_dir, args.graph_dir)
+
+        def make_transcriber():
+            return KaldiExtensionTranscriber(args.model_dir, args.graph_dir)
 
         # Listen for messages
         client = mqtt.Client()
-        hermes = AsrHermesMqtt(client, transcriber, siteId=args.siteId)
-
-        if args.reload:
-            # Start polling thread
-            threading.Thread(
-                target=poll_fst,
-                args=(args.reload, args.model_dir, args.graph_dir, hermes),
-                daemon=True,
-            ).start()
+        hermes = AsrHermesMqtt(client, make_transcriber, siteIds=args.siteId)
 
         def on_disconnect(client, userdata, flags, rc):
             try:
@@ -94,32 +82,6 @@ def main():
         pass
     finally:
         _LOGGER.debug("Shutting down")
-
-
-# -----------------------------------------------------------------------------
-
-
-def poll_fst(seconds: float, model_dir: str, graph_dir: str, hermes: AsrHermesMqtt):
-    """Poll HCLG.fst and re-load Kaldi model when changed."""
-    fst_path = os.path.join(graph_dir, "HCLG.fst")
-    last_timestamp: int = 0
-
-    while True:
-        time.sleep(seconds)
-        try:
-            timestamp = os.stat(fst_path).st_mtime_ns
-            if timestamp != last_timestamp:
-                # Reload model
-                _LOGGER.debug(
-                    "Loading Kaldi model from %s (graph=%s)", model_dir, graph_dir
-                )
-
-                # Set in hermes object
-                hermes.transcriber = KaldiExtensionTranscriber(model_dir, graph_dir)
-
-                last_timestamp = timestamp
-        except Exception:
-            _LOGGER.exception("poll_graph")
 
 
 # -----------------------------------------------------------------------------

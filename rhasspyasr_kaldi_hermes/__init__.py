@@ -2,9 +2,11 @@
 import io
 import json
 import logging
+import subprocess
+import threading
 import typing
 import wave
-from collections import defaultdict
+from queue import Queue
 
 import attr
 
@@ -17,10 +19,28 @@ from rhasspyhermes.asr import (
     AsrToggleOff,
 )
 from rhasspyhermes.audioserver import AudioFrame
-from rhasspyasr import Transcriber
-from rhasspysilence import VoiceCommandRecorder, VoiceCommandResult, WebRtcVadRecorder
+from rhasspyasr import Transcriber, Transcription
+from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
 _LOGGER = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------------
+
+
+@attr.s
+class TranscriberInfo:
+    """Objects for a single transcriber"""
+
+    transcriber: typing.Optional[Transcriber] = attr.ib(default=None)
+    recorder: typing.Optional[VoiceCommandRecorder] = attr.ib(default=None)
+    frame_queue: "Queue[bytes]" = attr.ib(factory=Queue)
+    result: typing.Optional[Transcription] = attr.ib(default=None)
+    result_event: threading.Event = attr.ib(factory=threading.Event)
+    result_sent: bool = attr.ib(default=False)
+    thread: threading.Thread = attr.ib(default=None)
+
+
+# -----------------------------------------------------------------------------
 
 
 class AsrHermesMqtt:
@@ -29,17 +49,19 @@ class AsrHermesMqtt:
     def __init__(
         self,
         client,
-        transcriber: Transcriber,
-        siteId: str = "default",
+        transcriber_factory: typing.Callable[[None], Transcriber],
+        siteIds: typing.Optional[typing.List[str]] = None,
         enabled: bool = True,
         sample_rate: int = 16000,
         sample_width: int = 2,
         channels: int = 1,
-        make_recorder: typing.Callable[[], VoiceCommandRecorder] = None,
+        recorder_factory: typing.Optional[
+            typing.Callable[[None], VoiceCommandRecorder]
+        ] = None,
     ):
         self.client = client
-        self.transcriber = transcriber
-        self.siteId = siteId
+        self.transcriber_factory = transcriber_factory
+        self.siteIds = siteIds or []
         self.enabled = enabled
 
         # Required audio format
@@ -48,74 +70,186 @@ class AsrHermesMqtt:
         self.channels = channels
 
         # No timeout
-        self.make_recorder = make_recorder or (
+        self.recorder_factory = recorder_factory or (
             lambda: WebRtcVadRecorder(max_seconds=None)
         )
 
         # WAV buffers for each session
-        self.session_recorders = defaultdict(VoiceCommandRecorder)
+        self.sessions: typing.Dict[str, TranscriberInfo] = {}
+        self.free_transcribers: typing.List[TranscriberInfo] = []
 
         # Topic to listen for WAV chunks on
-        self.audioframe_topic: str = AudioFrame.topic(self.siteId)
+        self.audioframe_topics: typing.List[str] = []
+        for siteId in self.siteIds:
+            self.audioframe_topics.append(AudioFrame.topic(siteId=siteId))
+
         self.first_audio: bool = True
 
     # -------------------------------------------------------------------------
 
     def start_listening(self, message: AsrStartListening):
         """Start recording audio data for a session."""
-        if message.sessionId not in self.session_recorders:
-            self.session_recorders[message.sessionId] = self.make_recorder()
+        if message.sessionId in self.sessions:
+            # Stop existing session
+            self.stop_listening(AsrStopListening(sessionId=message.sessionId))
 
-        # Start session
-        self.session_recorders[message.sessionId].start()
+        if self.free_transcribers:
+            # Re-use existing transcriber
+            info = self.free_transcribers.pop()
+
+            # Clear queue
+            while not info.frame_queue.empty():
+                info.frame_queue.get()
+
+            _LOGGER.debug(
+                "Re-using existing transcriber (sessionId=%s)", message.sessionId
+            )
+        else:
+            # Create new transcriber
+            info = TranscriberInfo(recorder=self.recorder_factory())
+            _LOGGER.debug("Creating new transcriber session %s", message.sessionId)
+
+            def transcribe_proc(
+                info, transcriber_factory, sample_rate, sample_width, channels
+            ):
+                def audio_stream(frame_queue):
+                    # Pull frames from the queue
+                    frames = frame_queue.get()
+                    while frames:
+                        yield frames
+                        frames = frame_queue.get()
+
+                try:
+                    # Create transcriber in this thread
+                    info.transcriber = transcriber_factory()
+
+                    while True:
+                        # Get result of transcription
+                        result = info.transcriber.transcribe_stream(
+                            audio_stream(info.frame_queue),
+                            sample_rate,
+                            sample_width,
+                            channels,
+                        )
+
+                        _LOGGER.debug(result)
+
+                        # Signal completion
+                        info.result = result
+                        info.result_event.set()
+                except Exception:
+                    _LOGGER.exception("session proc")
+
+            # Run in separate thread
+            info.thread = threading.Thread(
+                target=transcribe_proc,
+                args=(
+                    info,
+                    self.transcriber_factory,
+                    self.sample_rate,
+                    self.sample_width,
+                    self.channels,
+                ),
+                daemon=True,
+            )
+
+            info.thread.start()
+
+        # ---------------------------------------------------------------------
+
+        self.sessions[message.sessionId] = info
         _LOGGER.debug("Starting listening (sessionId=%s)", message.sessionId)
         self.first_audio = True
 
-    def stop_listening(self, message: AsrStopListening):
+    def stop_listening(
+        self, message: AsrStopListening
+    ) -> typing.Iterable[AsrTextCaptured]:
         """Stop recording audio data for a session."""
-        if message.sessionId in self.session_recorders:
+        info = self.sessions.pop(message.sessionId, None)
+        if info:
             # Stop session
-            self.session_recorders[message.sessionId].stop()
+            info.recorder.stop()
+            info.frame_queue.put(None)
+            info.result_event.wait()
 
-        _LOGGER.debug("Stopping listening (sessionId=%s)", message.sessionId)
-
-    def transcribe(self, audio_data: bytes, sessionId: str = ""):
-        """Transcribe audio data and publish captured text."""
-        try:
-            with io.BytesIO() as wav_buffer:
-                with wave.open(wav_buffer, mode="wb") as wav_file:
-                    wav_file.setframerate(self.sample_rate)
-                    wav_file.setsampwidth(self.sample_width)
-                    wav_file.setnchannels(self.channels)
-                    wav_file.writeframesraw(audio_data)
-
-                transcription = self.transcriber.transcribe_wav(wav_buffer.getvalue())
+            if not info.result_sent:
+                transcription = info.result
                 if transcription:
-                    # Actual transcription
-                    self.publish(
+                    # Successful transcription
+                    yield (
                         AsrTextCaptured(
                             text=transcription.text,
                             likelihood=transcription.likelihood,
                             seconds=transcription.transcribe_seconds,
-                            siteId=self.siteId,
+                            siteId=message.siteId,
+                            sessionId=message.sessionId,
+                        )
+                    )
+                else:
+                    # Empty transcription
+                    yield AsrTextCaptured(
+                        text="",
+                        likelihood=0,
+                        seconds=0,
+                        siteId=message.siteId,
+                        sessionId=message.sessionId,
+                    )
+
+            info.result = None
+            info.result_event.clear()
+            info.result_sent = False
+
+            # Add to free pool
+            self.free_transcribers.append(info)
+
+        _LOGGER.debug("Stopping listening (sessionId=%s)", message.sessionId)
+
+    def handle_audio_frame(
+        self, wav_bytes: bytes, siteId: str = "default"
+    ) -> typing.Iterable[AsrTextCaptured]:
+        """Process single frame of WAV audio"""
+        audio_data = self.maybe_convert_wav(wav_bytes)
+
+        # Add to every open session
+        # TODO: Add AsrError
+        for sessionId, info in self.sessions.items():
+            info.frame_queue.put(audio_data)
+
+            # Check for voice command end
+            command = info.recorder.process_chunk(audio_data)
+            if command:
+                # Last chunk
+                info.frame_queue.put(None)
+
+                # TODO: Add timeout
+                info.result_event.wait()
+                info.result_sent = True
+                transcription = info.result
+                _LOGGER.debug(
+                    "Got transcription for session %s: %s", sessionId, transcription
+                )
+
+                # Clear result so transcription will not be re-sent after stop message
+                if transcription:
+                    # Successful transcription
+                    yield (
+                        AsrTextCaptured(
+                            text=transcription.text,
+                            likelihood=transcription.likelihood,
+                            seconds=transcription.transcribe_seconds,
+                            siteId=siteId,
                             sessionId=sessionId,
                         )
                     )
                 else:
-                    _LOGGER.warning("Received empty transcription")
-
                     # Empty transcription
-                    self.publish(
-                        AsrTextCaptured(
-                            text="",
-                            likelihood=0,
-                            seconds=0,
-                            siteId=self.siteId,
-                            sessionId=sessionId,
-                        )
+                    yield AsrTextCaptured(
+                        text="",
+                        likelihood=0,
+                        seconds=0,
+                        siteId=siteId,
+                        sessionId=sessionId,
                     )
-        except Exception:
-            _LOGGER.exception("transcribe")
 
     # -------------------------------------------------------------------------
 
@@ -123,12 +257,19 @@ class AsrHermesMqtt:
         """Connected to MQTT broker."""
         try:
             topics = [
-                AudioFrame.topic(self.siteId),
                 AsrToggleOn.topic(),
                 AsrToggleOff.topic(),
                 AsrStartListening.topic(),
                 AsrStopListening.topic(),
             ]
+
+            if self.audioframe_topics:
+                # Specific siteIds
+                topics.extend(self.audioframe_topics)
+            else:
+                # All siteIds
+                topics.append(AudioFrame.topic(siteId="+"))
+
             for topic in topics:
                 self.client.subscribe(topic)
                 _LOGGER.debug("Subscribed to %s", topic)
@@ -138,7 +279,8 @@ class AsrHermesMqtt:
     def on_message(self, client, userdata, msg):
         """Received message from MQTT broker."""
         try:
-            _LOGGER.debug("Received %s byte(s) on %s", len(msg.payload), msg.topic)
+            if not msg.topic.endswith("/audioFrame"):
+                _LOGGER.debug("Received %s byte(s) on %s", len(msg.payload), msg.topic)
 
             # Check enable/disable messages
             if msg.topic == AsrToggleOn.topic():
@@ -156,34 +298,19 @@ class AsrHermesMqtt:
                 # Disabled
                 return
 
-            if msg.topic == self.audioframe_topic:
-                # Add to all active sessions
-                if self.first_audio:
-                    _LOGGER.debug("Receiving audio")
-                    self.first_audio = False
+            if AudioFrame.is_topic(msg.topic):
+                # Check siteId
+                if (not self.audioframe_topics) or (
+                    msg.topic in self.audioframe_topics
+                ):
+                    # Add to all active sessions
+                    if self.first_audio:
+                        _LOGGER.debug("Receiving audio")
+                        self.first_audio = False
 
-                # Extract audio data.
-                # TODO: Convert to appropriate format.
-                with io.BytesIO(msg.payload) as wav_io:
-                    with wave.open(wav_io) as wav_file:
-                        audio_data = wav_file.readframes(wav_file.getnframes())
-
-                        # Add to every open session
-                        for sessionId, recorder in self.session_recorders.items():
-                            command = recorder.process_chunk(audio_data)
-                            if command and (
-                                command.result == VoiceCommandResult.SUCCESS
-                            ):
-                                _LOGGER.debug(
-                                    "Voice command recorded for session %s (%s byte(s))",
-                                    sessionId,
-                                    len(command.audio_data),
-                                )
-                                self.transcribe(command.audio_data, sessionId)
-
-                                # Reset session (but keep open)
-                                recorder.stop()
-                                recorder.start()
+                    siteId = AudioFrame.get_siteId(msg.topic)
+                    for result in self.handle_audio_frame(msg.payload, siteId=siteId):
+                        self.publish(result)
 
             elif msg.topic == AsrStartListening.topic():
                 # hermes/asr/startListening
@@ -194,7 +321,8 @@ class AsrHermesMqtt:
                 # hermes/asr/stopListening
                 json_payload = json.loads(msg.payload)
                 if self._check_siteId(json_payload):
-                    self.stop_listening(AsrStopListening(**json_payload))
+                    for result in self.stop_listening(AsrStopListening(**json_payload)):
+                        self.publish(result)
         except Exception:
             _LOGGER.exception("on_message")
 
@@ -209,5 +337,53 @@ class AsrHermesMqtt:
         except Exception:
             _LOGGER.exception("on_message")
 
+    # -------------------------------------------------------------------------
+
     def _check_siteId(self, json_payload: typing.Dict[str, typing.Any]) -> bool:
-        return json_payload.get("siteId", "default") == self.siteId
+        if self.siteIds:
+            return json_payload.get("siteId", "default") in self.siteIds
+
+        # All sites
+        return True
+
+    # -------------------------------------------------------------------------
+
+    def _convert_wav(self, wav_data: bytes) -> bytes:
+        """Converts WAV data to required format with sox. Return raw audio."""
+        return subprocess.run(
+            [
+                "sox",
+                "-t",
+                "wav",
+                "-",
+                "-r",
+                str(self.sample_rate),
+                "-e",
+                "signed-integer",
+                "-b",
+                str(self.sample_width * 8),
+                "-c",
+                str(self.channels),
+                "-t",
+                "raw",
+                "-",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            input=wav_data,
+        ).stdout
+
+    def maybe_convert_wav(self, wav_bytes: bytes) -> bytes:
+        """Converts WAV data to required format if necessary. Returns raw audio."""
+        with io.BytesIO(wav_bytes) as wav_io:
+            with wave.open(wav_io, "rb") as wav_file:
+                if (
+                    (wav_file.getframerate() != self.sample_rate)
+                    or (wav_file.getsampwidth() != self.sample_width)
+                    or (wav_file.getnchannels() != self.channels)
+                ):
+                    # Return converted wav
+                    return self._convert_wav(wav_bytes)
+
+                # Return original audio
+                return wav_file.readframes(wav_file.getnframes())
