@@ -22,6 +22,8 @@ from rhasspyhermes.audioserver import AudioFrame
 from rhasspyasr import Transcriber, Transcription
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
+from .messages import AsrError
+
 _LOGGER = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
@@ -33,7 +35,8 @@ class TranscriberInfo:
 
     transcriber: typing.Optional[Transcriber] = attr.ib(default=None)
     recorder: typing.Optional[VoiceCommandRecorder] = attr.ib(default=None)
-    frame_queue: "Queue[bytes]" = attr.ib(factory=Queue)
+    frame_queue: "Queue[typing.Optional[bytes]]" = attr.ib(factory=Queue)
+    ready_event: threading.Event = attr.ib(factory=threading.Event)
     result: typing.Optional[Transcription] = attr.ib(default=None)
     result_event: threading.Event = attr.ib(factory=threading.Event)
     result_sent: bool = attr.ib(default=False)
@@ -58,21 +61,26 @@ class AsrHermesMqtt:
         recorder_factory: typing.Optional[
             typing.Callable[[None], VoiceCommandRecorder]
         ] = None,
+        session_result_timeout: float = 1,
     ):
         self.client = client
         self.transcriber_factory = transcriber_factory
         self.siteIds = siteIds or []
         self.enabled = enabled
 
+        # Seconds to wait for a result from transcriber thread
+        self.session_result_timeout = session_result_timeout
+
         # Required audio format
         self.sample_rate = sample_rate
         self.sample_width = sample_width
         self.channels = channels
 
-        # No timeout
-        self.recorder_factory = recorder_factory or (
-            lambda: WebRtcVadRecorder(max_seconds=None)
-        )
+        # No timeout on silence detection
+        def make_webrtcvad():
+            return WebRtcVadRecorder(max_seconds=None)
+
+        self.recorder_factory = recorder_factory or make_webrtcvad
 
         # WAV buffers for each session
         self.sessions: typing.Dict[str, TranscriberInfo] = {}
@@ -87,169 +95,194 @@ class AsrHermesMqtt:
 
     # -------------------------------------------------------------------------
 
-    def start_listening(self, message: AsrStartListening):
+    def start_listening(
+        self, message: AsrStartListening
+    ) -> typing.Iterable[typing.Union[AsrTextCaptured, AsrError]]:
         """Start recording audio data for a session."""
-        if message.sessionId in self.sessions:
-            # Stop existing session
-            self.stop_listening(AsrStopListening(sessionId=message.sessionId))
+        try:
+            if message.sessionId in self.sessions:
+                # Stop existing session
+                for result in self.stop_listening(
+                    AsrStopListening(sessionId=message.sessionId)
+                ):
+                    yield result
 
-        if self.free_transcribers:
-            # Re-use existing transcriber
-            info = self.free_transcribers.pop()
+            if self.free_transcribers:
+                # Re-use existing transcriber
+                info = self.free_transcribers.pop()
 
-            # Clear queue
-            while not info.frame_queue.empty():
-                info.frame_queue.get()
+                _LOGGER.debug(
+                    "Re-using existing transcriber (sessionId=%s)", message.sessionId
+                )
+            else:
+                # Create new transcriber
+                info = TranscriberInfo(recorder=self.recorder_factory())  # type: ignore
+                _LOGGER.debug("Creating new transcriber session %s", message.sessionId)
 
-            _LOGGER.debug(
-                "Re-using existing transcriber (sessionId=%s)", message.sessionId
-            )
-        else:
-            # Create new transcriber
-            info = TranscriberInfo(recorder=self.recorder_factory())
-            _LOGGER.debug("Creating new transcriber session %s", message.sessionId)
-
-            def transcribe_proc(
-                info, transcriber_factory, sample_rate, sample_width, channels
-            ):
-                def audio_stream(frame_queue):
-                    # Pull frames from the queue
-                    frames = frame_queue.get()
-                    while frames:
-                        yield frames
+                def transcribe_proc(
+                    info, transcriber_factory, sample_rate, sample_width, channels
+                ):
+                    def audio_stream(frame_queue):
+                        # Pull frames from the queue
                         frames = frame_queue.get()
+                        while frames:
+                            yield frames
+                            frames = frame_queue.get()
 
-                try:
-                    # Create transcriber in this thread
-                    info.transcriber = transcriber_factory()
+                    try:
+                        # Create transcriber in this thread
+                        info.transcriber = transcriber_factory()
 
-                    while True:
-                        # Get result of transcription
-                        result = info.transcriber.transcribe_stream(
-                            audio_stream(info.frame_queue),
-                            sample_rate,
-                            sample_width,
-                            channels,
-                        )
+                        while True:
+                            # Wait for session to start
+                            info.ready_event.wait()
+                            info.ready_event.clear()
 
-                        _LOGGER.debug(result)
+                            # Get result of transcription
+                            result = info.transcriber.transcribe_stream(
+                                audio_stream(info.frame_queue),
+                                sample_rate,
+                                sample_width,
+                                channels,
+                            )
 
-                        # Signal completion
-                        info.result = result
-                        info.result_event.set()
-                except Exception:
-                    _LOGGER.exception("session proc")
+                            _LOGGER.debug(result)
 
-            # Run in separate thread
-            info.thread = threading.Thread(
-                target=transcribe_proc,
-                args=(
-                    info,
-                    self.transcriber_factory,
-                    self.sample_rate,
-                    self.sample_width,
-                    self.channels,
-                ),
-                daemon=True,
+                            # Signal completion
+                            info.result = result
+                            info.result_event.set()
+                    except Exception:
+                        _LOGGER.exception("session proc")
+
+                # Run in separate thread
+                info.thread = threading.Thread(
+                    target=transcribe_proc,
+                    args=(
+                        info,
+                        self.transcriber_factory,
+                        self.sample_rate,
+                        self.sample_width,
+                        self.channels,
+                    ),
+                    daemon=True,
+                )
+
+                info.thread.start()
+
+            # ---------------------------------------------------------------------
+
+            # Signal session thread to start
+            info.ready_event.set()
+
+            # Begin silence detection
+            assert info.recorder is not None
+            info.recorder.start()
+
+            self.sessions[message.sessionId] = info
+            _LOGGER.debug("Starting listening (sessionId=%s)", message.sessionId)
+            self.first_audio = True
+        except Exception as e:
+            _LOGGER.exception("start_listening")
+            yield AsrError(
+                error=str(e),
+                context=repr(message),
+                siteId=message.siteId,
+                sessionId=message.sessionId,
             )
-
-            info.thread.start()
-
-        # ---------------------------------------------------------------------
-
-        self.sessions[message.sessionId] = info
-        _LOGGER.debug("Starting listening (sessionId=%s)", message.sessionId)
-        self.first_audio = True
 
     def stop_listening(
         self, message: AsrStopListening
-    ) -> typing.Iterable[AsrTextCaptured]:
+    ) -> typing.Iterable[typing.Union[AsrTextCaptured, AsrError]]:
         """Stop recording audio data for a session."""
         info = self.sessions.pop(message.sessionId, None)
         if info:
-            # Stop session
-            info.recorder.stop()
-            info.frame_queue.put(None)
-            info.result_event.wait()
+            try:
+                # Trigger publishing of transcription on end of session
+                for result in self.finish_session(
+                    info, message.siteId, message.sessionId
+                ):
+                    yield result
 
-            if not info.result_sent:
-                transcription = info.result
-                if transcription:
-                    # Successful transcription
-                    yield (
-                        AsrTextCaptured(
-                            text=transcription.text,
-                            likelihood=transcription.likelihood,
-                            seconds=transcription.transcribe_seconds,
-                            siteId=message.siteId,
-                            sessionId=message.sessionId,
-                        )
-                    )
-                else:
-                    # Empty transcription
-                    yield AsrTextCaptured(
-                        text="",
-                        likelihood=0,
-                        seconds=0,
-                        siteId=message.siteId,
-                        sessionId=message.sessionId,
-                    )
+                # Reset state
+                info.result = None
+                info.result_event.clear()
+                info.result_sent = False
 
-            info.result = None
-            info.result_event.clear()
-            info.result_sent = False
-
-            # Add to free pool
-            self.free_transcribers.append(info)
+                # Add to free pool
+                self.free_transcribers.append(info)
+            except Exception as e:
+                _LOGGER.exception("stop_listening")
+                yield AsrError(
+                    error=str(e),
+                    context=repr(info.transcriber),
+                    siteId=message.siteId,
+                    sessionId=message.sessionId,
+                )
 
         _LOGGER.debug("Stopping listening (sessionId=%s)", message.sessionId)
 
     def handle_audio_frame(
         self, wav_bytes: bytes, siteId: str = "default"
-    ) -> typing.Iterable[AsrTextCaptured]:
+    ) -> typing.Iterable[typing.Union[AsrTextCaptured, AsrError]]:
         """Process single frame of WAV audio"""
         audio_data = self.maybe_convert_wav(wav_bytes)
 
         # Add to every open session
-        # TODO: Add AsrError
         for sessionId, info in self.sessions.items():
-            info.frame_queue.put(audio_data)
+            try:
+                info.frame_queue.put(audio_data)
 
-            # Check for voice command end
-            command = info.recorder.process_chunk(audio_data)
-            if command:
-                # Last chunk
-                info.frame_queue.put(None)
-
-                # TODO: Add timeout
-                info.result_event.wait()
-                info.result_sent = True
-                transcription = info.result
-                _LOGGER.debug(
-                    "Got transcription for session %s: %s", sessionId, transcription
+                # Check for voice command end
+                assert info.recorder is not None
+                command = info.recorder.process_chunk(audio_data)
+                if command:
+                    # Trigger publishing of transcription on silence
+                    for result in self.finish_session(info, siteId, sessionId):
+                        yield result
+            except Exception as e:
+                _LOGGER.exception("handle_audio_frame")
+                yield AsrError(
+                    error=str(e),
+                    context=repr(info.transcriber),
+                    siteId=siteId,
+                    sessionId=sessionId,
                 )
 
-                # Clear result so transcription will not be re-sent after stop message
-                if transcription:
-                    # Successful transcription
-                    yield (
-                        AsrTextCaptured(
-                            text=transcription.text,
-                            likelihood=transcription.likelihood,
-                            seconds=transcription.transcribe_seconds,
-                            siteId=siteId,
-                            sessionId=sessionId,
-                        )
-                    )
-                else:
-                    # Empty transcription
-                    yield AsrTextCaptured(
-                        text="",
-                        likelihood=0,
-                        seconds=0,
+    def finish_session(
+        self, info: TranscriberInfo, siteId: str, sessionId: str
+    ) -> typing.Iterable[AsrTextCaptured]:
+        """Publish transcription result for a session if not already published"""
+        # Stop silence detection
+        assert info.recorder is not None
+        info.recorder.stop()
+
+        if not info.result_sent:
+            # Last chunk
+            info.frame_queue.put(None)
+
+            # Wait for result
+            info.result_event.wait(timeout=self.session_result_timeout)
+
+            transcription = info.result
+            if transcription:
+                # Successful transcription
+                yield (
+                    AsrTextCaptured(
+                        text=transcription.text,
+                        likelihood=transcription.likelihood,
+                        seconds=transcription.transcribe_seconds,
                         siteId=siteId,
                         sessionId=sessionId,
                     )
+                )
+            else:
+                # Empty transcription
+                yield AsrTextCaptured(
+                    text="", likelihood=0, seconds=0, siteId=siteId, sessionId=sessionId
+                )
+
+            # Avoid re-sending transcription
+            info.result_sent = True
 
     # -------------------------------------------------------------------------
 
@@ -316,7 +349,10 @@ class AsrHermesMqtt:
                 # hermes/asr/startListening
                 json_payload = json.loads(msg.payload)
                 if self._check_siteId(json_payload):
-                    self.start_listening(AsrStartListening(**json_payload))
+                    for result in self.start_listening(
+                        AsrStartListening(**json_payload)
+                    ):
+                        self.publish(result)
             elif msg.topic == AsrStopListening.topic():
                 # hermes/asr/stopListening
                 json_payload = json.loads(msg.payload)

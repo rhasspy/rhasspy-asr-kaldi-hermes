@@ -3,6 +3,7 @@
 check:
 	flake8 rhasspyasr_kaldi_hermes/*.py
 	pylint rhasspyasr_kaldi_hermes/*.py
+	mypy rhasspyasr_kaldi_hermes/*.py
 
 venv:
 	rm -rf .venv/
