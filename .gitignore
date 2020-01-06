@@ -1,3 +1,6 @@
 __pycache__/
 .venv/
 .mypy_cache/
+pyinstaller/
+dist/
+debian/rhasspy-asr-kaldi-hermes*
