@@ -10,16 +10,16 @@ from queue import Queue
 
 import attr
 
-from rhasspyhermes.base import Message
+from rhasspyasr import Transcriber, Transcription
 from rhasspyhermes.asr import (
     AsrStartListening,
     AsrStopListening,
     AsrTextCaptured,
-    AsrToggleOn,
     AsrToggleOff,
+    AsrToggleOn,
 )
 from rhasspyhermes.audioserver import AudioFrame
-from rhasspyasr import Transcriber, Transcription
+from rhasspyhermes.base import Message
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
 from .messages import AsrError

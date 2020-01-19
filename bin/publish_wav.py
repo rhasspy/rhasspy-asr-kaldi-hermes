@@ -44,6 +44,7 @@ def main():
     _LOGGER.debug(args)
 
     subscribed_event = threading.Event()
+
     def on_connect(client, userdata, flags, rc):
         try:
             for topic in [TOPIC_TEXT_CAPTURED]:

@@ -4,3 +4,4 @@ __pycache__/
 pyinstaller/
 dist/
 debian/rhasspy-asr-kaldi-hermes*
+.vscode/

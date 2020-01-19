@@ -4,6 +4,7 @@ import logging
 import os
 
 import paho.mqtt.client as mqtt
+
 from rhasspyasr_kaldi import KaldiExtensionTranscriber
 
 from . import AsrHermesMqtt
