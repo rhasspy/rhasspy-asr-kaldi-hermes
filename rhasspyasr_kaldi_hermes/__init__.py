@@ -29,18 +29,18 @@ _LOGGER = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 
 
-@attr.s
+@attr.s(auto_attribs=True)
 class TranscriberInfo:
     """Objects for a single transcriber"""
 
-    transcriber: typing.Optional[Transcriber] = attr.ib(default=None)
-    recorder: typing.Optional[VoiceCommandRecorder] = attr.ib(default=None)
-    frame_queue: "Queue[typing.Optional[bytes]]" = attr.ib(factory=Queue)
-    ready_event: threading.Event = attr.ib(factory=threading.Event)
-    result: typing.Optional[Transcription] = attr.ib(default=None)
-    result_event: threading.Event = attr.ib(factory=threading.Event)
-    result_sent: bool = attr.ib(default=False)
-    thread: threading.Thread = attr.ib(default=None)
+    transcriber: typing.Optional[Transcriber] = None
+    recorder: typing.Optional[VoiceCommandRecorder] = None
+    frame_queue: "Queue[typing.Optional[bytes]]" = attr.Factory(Queue)
+    ready_event: threading.Event = attr.Factory(threading.Event)
+    result: typing.Optional[Transcription] = None
+    result_event: threading.Event = attr.Factory(threading.Event)
+    result_sent: bool = False
+    thread: threading.Thread = None
 
 
 # -----------------------------------------------------------------------------
