@@ -6,23 +6,25 @@ import subprocess
 import threading
 import typing
 import wave
+from pathlib import Path
 from queue import Queue
 
 import attr
-
+import rhasspyasr_kaldi
 from rhasspyasr import Transcriber, Transcription
 from rhasspyhermes.asr import (
+    AsrError,
     AsrStartListening,
     AsrStopListening,
     AsrTextCaptured,
     AsrToggleOff,
     AsrToggleOn,
+    AsrTrain,
+    AsrTrainSuccess,
 )
 from rhasspyhermes.audioserver import AudioFrame
 from rhasspyhermes.base import Message
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
-
-from .messages import AsrError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,19 +54,29 @@ class AsrHermesMqtt:
     def __init__(
         self,
         client,
-        transcriber_factory: typing.Callable[[None], Transcriber],
+        transcriber_factory: typing.Callable[[], Transcriber],
+        model_dir: typing.Optional[Path] = None,
+        graph_dir: typing.Optional[Path] = None,
+        kaldi_dir: typing.Optional[Path] = None,
+        base_dictionaries: typing.Optional[typing.List[Path]] = None,
+        g2p_model: typing.Optional[Path] = None,
         siteIds: typing.Optional[typing.List[str]] = None,
         enabled: bool = True,
         sample_rate: int = 16000,
         sample_width: int = 2,
         channels: int = 1,
         recorder_factory: typing.Optional[
-            typing.Callable[[None], VoiceCommandRecorder]
+            typing.Callable[[], VoiceCommandRecorder]
         ] = None,
         session_result_timeout: float = 1,
     ):
         self.client = client
         self.transcriber_factory = transcriber_factory
+        self.model_dir = model_dir
+        self.graph_dir = graph_dir
+        self.kaldi_dir = kaldi_dir
+        self.base_dictionaries = base_dictionaries or []
+        self.g2p_model = g2p_model
         self.siteIds = siteIds or []
         self.enabled = enabled
 
@@ -283,6 +295,28 @@ class AsrHermesMqtt:
 
             # Avoid re-sending transcription
             info.result_sent = True
+
+    # -------------------------------------------------------------------------
+
+    def handle_train(
+        self, train: AsrTrain, siteId: str = "default"
+    ) -> typing.Union[AsrTrainSuccess, AsrError]:
+        """Re-trains ASR system."""
+        try:
+            assert self.kaldi_dir and self.model_dir and self.graph_dir
+            rhasspyasr_kaldi.train(
+                train.graph_dict,
+                self.base_dictionaries,
+                self.kaldi_dir,
+                self.model_dir,
+                self.graph_dir,
+                self.g2p_model,
+            )
+
+            return AsrTrainSuccess(id=train.id)
+        except Exception as e:
+            _LOGGER.exception("train")
+            return AsrError(error=str(e), siteId=siteId, sessionId=train.id)
 
     # -------------------------------------------------------------------------
 
