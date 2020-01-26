@@ -87,9 +87,9 @@ class AsrHermesMqtt:
         self.free_transcribers: typing.List[TranscriberInfo] = []
 
         # Topic to listen for WAV chunks on
-        self.audioframe_topics: typing.List[str] = []
-        for siteId in self.siteIds:
-            self.audioframe_topics.append(AudioFrame.topic(siteId=siteId))
+        self.audioframe_topics: typing.List[str] = [
+            AudioFrame.topic(siteId=siteId) for siteId in self.siteIds
+        ]
 
         self.first_audio: bool = True
 
