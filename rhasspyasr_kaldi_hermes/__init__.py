@@ -57,9 +57,12 @@ class AsrHermesMqtt:
         transcriber_factory: typing.Callable[[], Transcriber],
         model_dir: typing.Optional[Path] = None,
         graph_dir: typing.Optional[Path] = None,
-        kaldi_dir: typing.Optional[Path] = None,
         base_dictionaries: typing.Optional[typing.List[Path]] = None,
+        dictionary_word_transform: typing.Optional[typing.Callable[[str], str]] = None,
         g2p_model: typing.Optional[Path] = None,
+        g2p_word_transform: typing.Optional[typing.Callable[[str], str]] = None,
+        dictionary_path: typing.Optional[Path] = None,
+        language_model_path: typing.Optional[Path] = None,
         siteIds: typing.Optional[typing.List[str]] = None,
         enabled: bool = True,
         sample_rate: int = 16000,
@@ -68,15 +71,29 @@ class AsrHermesMqtt:
         recorder_factory: typing.Optional[
             typing.Callable[[], VoiceCommandRecorder]
         ] = None,
-        session_result_timeout: float = 1,
+        session_result_timeout: float = 30,
     ):
         self.client = client
+
         self.transcriber_factory = transcriber_factory
+
+        # Kaldi model/graph dirs
         self.model_dir = model_dir
         self.graph_dir = graph_dir
-        self.kaldi_dir = kaldi_dir
+
+        # Files to write during training
+        self.dictionary_path = dictionary_path
+        self.language_model_path = language_model_path
+
+        # Pronunciation dictionaries and word transform function
         self.base_dictionaries = base_dictionaries or []
+        self.dictionary_word_transform = dictionary_word_transform
+
+        # Grapheme-to-phonme model (Phonetisaurus FST) and word transform
+        # function.
         self.g2p_model = g2p_model
+        self.g2p_word_transform = g2p_word_transform
+
         self.siteIds = siteIds or []
         self.enabled = enabled
 
@@ -304,13 +321,18 @@ class AsrHermesMqtt:
         """Re-trains ASR system."""
         try:
             assert self.kaldi_dir and self.model_dir and self.graph_dir
+
+            # Re-generate HCLG.fst
             rhasspyasr_kaldi.train(
                 train.graph_dict,
                 self.base_dictionaries,
-                self.kaldi_dir,
                 self.model_dir,
                 self.graph_dir,
-                self.g2p_model,
+                dictionary=self.dictionary_path,
+                language_model=self.language_model_path,
+                dictionary_word_transform=self.dictionary_word_transform,
+                g2p_model=self.g2p_model,
+                g2p_word_transform=self.g2p_word_transform,
             )
 
             return AsrTrainSuccess(id=train.id)

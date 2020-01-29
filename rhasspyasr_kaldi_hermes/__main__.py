@@ -2,11 +2,12 @@
 import argparse
 import json
 import logging
+import typing
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
 import rhasspyasr_kaldi
-from rhasspyasr_kaldi import KaldiExtensionTranscriber
+from rhasspyasr_kaldi import KaldiCommandLineTranscriber
 
 from . import AsrHermesMqtt
 
@@ -26,8 +27,7 @@ def main():
 
     _LOGGER.debug(args)
 
-    # Dispatch to appropriate sub-command
-    args.func(args)
+    run_mqtt(args)
 
 
 # -----------------------------------------------------------------------------
@@ -35,84 +35,65 @@ def main():
 
 def get_args() -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(prog="rhasspy-asr-pocketsphinx-hermes")
+    parser = argparse.ArgumentParser(prog="rhasspy-asr-kaldi-hermes")
+
+    # Model settings
     parser.add_argument(
-        "--debug", action="store_true", help="Print DEBUG messages to the console"
+        "--model-type",
+        default="nnet3",
+        help="Type of Kaldi model (nnet3 or gmm, default: nnet3)",
     )
-
-    # Create subparsers for each sub-command
-    sub_parsers = parser.add_subparsers()
-    sub_parsers.required = True
-    sub_parsers.dest = "command"
-
-    # Run settings
-    run_parser = sub_parsers.add_parser("run", help="Run MQTT service")
-    run_parser.set_defaults(func=run_mqtt)
-
-    run_parser.add_argument(
-        "--kaldi-dir", help="Path to Kaldi root directory (training)"
+    parser.add_argument(
+        "--model-dir", required=True, help="Path to Kaldi model directory"
     )
-    run_parser.add_argument(
-        "--model-dir", help="Path to Kaldi model directory (training)"
-    )
-    run_parser.add_argument(
+    parser.add_argument(
         "--graph-dir",
-        help="Path to directory with HCLG.fst (training, defaults to $model_dir/graph)",
+        help="Path to directory with HCLG.fst (defaults to $model_dir/graph)",
     )
-    run_parser.add_argument(
+
+    # Training settings
+    parser.add_argument(
+        "--dictionary", help="Path to write pronunciation dictionary file (training)"
+    )
+    parser.add_argument(
+        "--dictionary-casing",
+        choices=["upper", "lower", "ignore"],
+        default="ignore",
+        help="Case transformation for dictionary words (training, default: ignore)",
+    )
+    parser.add_argument(
+        "--language-model", help="Path to write ARPA language model file (training)"
+    )
+    parser.add_argument(
         "--base-dictionary",
         action="append",
-        help="Path(s) to base pronunciation dictionary file(s)",
+        help="Path(s) to base pronunciation dictionary file(s) (training)",
     )
-    run_parser.add_argument(
-        "--g2p-model", help="Phonetisaurus FST model for guessing word pronunciations"
+    parser.add_argument(
+        "--g2p-model",
+        help="Phonetisaurus FST model for guessing word pronunciations (training)",
+    )
+    parser.add_argument(
+        "--g2p-casing",
+        choices=["upper", "lower", "ignore"],
+        default="ignore",
+        help="Case transformation for g2p words (training, default: ignore)",
     )
 
-    # MQTT settings (run)
-    run_parser.add_argument(
+    # MQTT settings
+    parser.add_argument(
         "--host", default="localhost", help="MQTT host (default: localhost)"
     )
-    run_parser.add_argument(
+    parser.add_argument(
         "--port", type=int, default=1883, help="MQTT port (default: 1883)"
     )
-    run_parser.add_argument(
+    parser.add_argument(
         "--siteId",
         action="append",
         help="Hermes siteId(s) to listen for (default: all)",
     )
-
-    # -------------------------------------------------------------------------
-
-    # Train settings
-    train_parser = sub_parsers.add_parser(
-        "train", help="Generate HCLG.fst from intent graph and exit"
-    )
-    train_parser.set_defaults(func=train)
-
-    train_parser.add_argument(
-        "--kaldi-dir", required=True, help="Path to Kaldi root directory"
-    )
-    train_parser.add_argument(
-        "--model-dir", required=True, help="Path to Kaldi model directory"
-    )
-    train_parser.add_argument(
-        "--graph-dir",
-        required=True,
-        help="Path to directory with HCLG.fst (defaults to $model_dir/graph)",
-    )
-
-    train_parser.add_argument(
-        "--intent-graph", required=True, help="Path to read intent graph JSON file"
-    )
-
-    train_parser.add_argument(
-        "--base-dictionary",
-        action="append",
-        required=True,
-        help="Path(s) to base pronunciation dictionary file(s)",
-    )
-    train_parser.add_argument(
-        "--g2p-model", help="Phonetisaurus FST model for guessing word pronunciations"
+    parser.add_argument(
+        "--debug", action="store_true", help="Print DEBUG messages to the console"
     )
 
     return parser.parse_args()
@@ -124,9 +105,6 @@ def get_args() -> argparse.Namespace:
 def run_mqtt(args: argparse.Namespace):
     """Runs Hermes ASR MQTT service."""
     # Convert to Paths
-    if args.kaldi_dir:
-        args.kaldi_dir = Path(args.kaldi_dir)
-
     if args.model_dir:
         args.model_dir = Path(args.model_dir)
 
@@ -141,6 +119,12 @@ def run_mqtt(args: argparse.Namespace):
     if args.g2p_model:
         args.g2p_model = Path(args.g2p_model)
 
+    if args.dictionary:
+        args.dictionary = Path(args.dictionary)
+
+    if args.language_model:
+        args.language_model = Path(args.language_model)
+
     # Load transciber
     _LOGGER.debug(
         "Loading Kaldi model from %s (graph=%s)",
@@ -149,7 +133,9 @@ def run_mqtt(args: argparse.Namespace):
     )
 
     def make_transcriber():
-        return KaldiExtensionTranscriber(args.model_dir, args.graph_dir)
+        return KaldiCommandLineTranscriber(
+            args.model_type, args.model_dir, args.graph_dir
+        )
 
     try:
         # Listen for messages
@@ -157,11 +143,14 @@ def run_mqtt(args: argparse.Namespace):
         hermes = AsrHermesMqtt(
             client,
             make_transcriber,
-            kaldi_dir=args.kaldi_dir,
             model_dir=args.model_dir,
             graph_dir=args.graph_dir,
             base_dictionaries=args.base_dictionary,
+            dictionary_path=args.dictionary,
+            dictionary_word_transform=get_word_transform(args.dictionary_casing),
+            language_model_path=args.language_model,
             g2p_model=args.g2p_model,
+            g2p_word_transform=get_word_transform(args.g2p_casing),
             siteIds=args.siteId,
         )
 
@@ -191,38 +180,15 @@ def run_mqtt(args: argparse.Namespace):
 # -----------------------------------------------------------------------------
 
 
-def train(args: argparse.Namespace):
-    """Re-trains ASR system."""
-    # Convert to Paths
-    if args.kaldi_dir:
-        args.kaldi_dir = Path(args.kaldi_dir)
+def get_word_transform(name: str) -> typing.Optional[typing.Callable[[str], str]]:
+    """Gets a word transformation function by name."""
+    if name == "upper":
+        return str.upper
 
-    if args.model_dir:
-        args.model_dir = Path(args.model_dir)
+    if name == "lower":
+        return str.lower
 
-    if args.graph_dir:
-        args.graph_dir = Path(args.graph_dir)
-    else:
-        args.graph_dir = args.model_dir / "graph"
-
-    if args.g2p_model:
-        args.g2p_model = Path(args.g2p_model)
-
-    base_dictionaries = [Path(p) for p in args.base_dictionary]
-    args.intent_graph = Path(args.graph)
-
-    # Re-train ASR system
-    _LOGGER.debug("Re-training from %s", args.intent_graph)
-    with open(args.intent_graph, "r") as json_file:
-        graph_dict = json.load(json_file)
-        rhasspyasr_kaldi.train(
-            graph_dict,
-            base_dictionaries,
-            args.kaldi_dir,
-            args.model_dir,
-            args.graph_dir,
-            args.g2p_model,
-        )
+    return None
 
 
 # -----------------------------------------------------------------------------
