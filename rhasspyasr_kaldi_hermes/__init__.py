@@ -42,7 +42,7 @@ class TranscriberInfo:
     result: typing.Optional[Transcription] = None
     result_event: threading.Event = attr.Factory(threading.Event)
     result_sent: bool = False
-    thread: threading.Thread = None
+    thread: typing.Optional[threading.Thread] = None
 
 
 # -----------------------------------------------------------------------------
@@ -320,7 +320,9 @@ class AsrHermesMqtt:
     ) -> typing.Union[AsrTrainSuccess, AsrError]:
         """Re-trains ASR system."""
         try:
-            assert self.kaldi_dir and self.model_dir and self.graph_dir
+            assert (
+                self.model_dir and self.graph_dir
+            ), "Model and graph dirs are required to train"
 
             # Re-generate HCLG.fst
             rhasspyasr_kaldi.train(

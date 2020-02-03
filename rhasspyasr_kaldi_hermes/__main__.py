@@ -1,12 +1,10 @@
 """Command-line interface to rhasspyasr-kaldi-hermes"""
 import argparse
-import json
 import logging
 import typing
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
-import rhasspyasr_kaldi
 from rhasspyasr_kaldi import KaldiCommandLineTranscriber
 
 from . import AsrHermesMqtt

@@ -6,3 +6,4 @@ dist/
 debian/rhasspy-asr-kaldi-hermes*
 .vscode/
 *.egg-info/
+download/
