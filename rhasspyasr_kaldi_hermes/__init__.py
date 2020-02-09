@@ -13,6 +13,7 @@ import attr
 import rhasspyasr_kaldi
 from rhasspyasr import Transcriber, Transcription
 from rhasspyhermes.asr import (
+    AsrAudioCaptured,
     AsrError,
     AsrStartListening,
     AsrStopListening,
@@ -24,6 +25,7 @@ from rhasspyhermes.asr import (
 )
 from rhasspyhermes.audioserver import AudioFrame
 from rhasspyhermes.base import Message
+from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +44,7 @@ class TranscriberInfo:
     result: typing.Optional[Transcription] = None
     result_event: threading.Event = attr.Factory(threading.Event)
     result_sent: bool = False
+    start_listening: typing.Optional[AsrStartListening] = None
     thread: typing.Optional[threading.Thread] = None
 
 
@@ -114,11 +117,6 @@ class AsrHermesMqtt:
         # WAV buffers for each session
         self.sessions: typing.Dict[str, TranscriberInfo] = {}
         self.free_transcribers: typing.List[TranscriberInfo] = []
-
-        # Topic to listen for WAV chunks on
-        self.audioframe_topics: typing.List[str] = [
-            AudioFrame.topic(siteId=siteId) for siteId in self.siteIds
-        ]
 
         self.first_audio: bool = True
 
@@ -200,6 +198,9 @@ class AsrHermesMqtt:
 
             # ---------------------------------------------------------------------
 
+            # Settings for session
+            info.start_listening = message
+
             # Signal session thread to start
             info.ready_event.set()
 
@@ -221,7 +222,13 @@ class AsrHermesMqtt:
 
     def stop_listening(
         self, message: AsrStopListening
-    ) -> typing.Iterable[typing.Union[AsrTextCaptured, AsrError]]:
+    ) -> typing.Iterable[
+        typing.Union[
+            AsrTextCaptured,
+            AsrError,
+            typing.Tuple[AsrAudioCaptured, typing.Dict[str, typing.Any]],
+        ]
+    ]:
         """Stop recording audio data for a session."""
         info = self.sessions.pop(message.sessionId, None)
         if info:
@@ -252,7 +259,13 @@ class AsrHermesMqtt:
 
     def handle_audio_frame(
         self, wav_bytes: bytes, siteId: str = "default"
-    ) -> typing.Iterable[typing.Union[AsrTextCaptured, AsrError]]:
+    ) -> typing.Iterable[
+        typing.Union[
+            AsrTextCaptured,
+            AsrError,
+            typing.Tuple[AsrAudioCaptured, typing.Dict[str, typing.Any]],
+        ]
+    ]:
         """Process single frame of WAV audio"""
         audio_data = self.maybe_convert_wav(wav_bytes)
 
@@ -264,7 +277,7 @@ class AsrHermesMqtt:
                 # Check for voice command end
                 assert info.recorder is not None
                 command = info.recorder.process_chunk(audio_data)
-                if command:
+                if info.start_listening.stopOnSilence and command:
                     # Trigger publishing of transcription on silence
                     for result in self.finish_session(info, siteId, sessionId):
                         yield result
@@ -281,11 +294,16 @@ class AsrHermesMqtt:
         self, info: TranscriberInfo, siteId: str, sessionId: str
     ) -> typing.Iterable[AsrTextCaptured]:
         """Publish transcription result for a session if not already published"""
-        # Stop silence detection
+
         assert info.recorder is not None
-        info.recorder.stop()
+
+        # Stop silence detection
+        audio_data = info.recorder.stop()
 
         if not info.result_sent:
+            # Avoid re-sending transcription
+            info.result_sent = True
+
             # Last chunk
             info.frame_queue.put(None)
 
@@ -310,8 +328,15 @@ class AsrHermesMqtt:
                     text="", likelihood=0, seconds=0, siteId=siteId, sessionId=sessionId
                 )
 
-            # Avoid re-sending transcription
-            info.result_sent = True
+            if info.start_listening.sendAudioCaptured:
+                wav_bytes = self.to_wav_bytes(audio_data)
+
+                # Send audio data
+                yield (
+                    # pylint: disable=E1121
+                    AsrAudioCaptured(wav_bytes),
+                    {"siteId": siteId, "sessionId": sessionId},
+                )
 
     # -------------------------------------------------------------------------
 
@@ -342,6 +367,78 @@ class AsrHermesMqtt:
             _LOGGER.exception("train")
             return AsrError(error=str(e), siteId=siteId, sessionId=train.id)
 
+    def handle_pronounce(
+        self, pronounce: G2pPronounce
+    ) -> typing.Union[G2pPhonemes, G2pError]:
+        """Looks up or guesses word pronunciation(s)."""
+        try:
+            result = G2pPhonemes(
+                id=pronounce.id, siteId=pronounce.siteId, sessionId=pronounce.sessionId
+            )
+
+            # Load base dictionaries
+            pronunciations: typing.Dict[str, typing.List[typing.List[str]]] = {}
+
+            for base_dict_path in self.base_dictionaries:
+                if base_dict_path.is_file():
+                    _LOGGER.debug("Loading base dictionary from %s", base_dict_path)
+                    with open(base_dict_path, "r") as base_dict_file:
+                        rhasspyasr_kaldi.read_dict(
+                            base_dict_file, word_dict=pronunciations
+                        )
+
+            # Try to look up in dictionary first
+            missing_words: typing.Set[str] = set()
+            if pronunciations:
+                for word in pronounce.words:
+                    # Handle case transformation
+                    if self.dictionary_word_transform:
+                        word = self.dictionary_word_transform(word)
+
+                    word_prons = pronunciations.get(word)
+                    if word_prons:
+                        # Use dictionary pronunciations
+                        result.wordPhonemes[word] = [
+                            G2pPronunciation(phonemes=p, guessed=False)
+                            for p in word_prons
+                        ]
+                    else:
+                        # Will have to guess later
+                        missing_words.add(word)
+            else:
+                # All words must be guessed
+                missing_words.update(pronounce.words)
+
+            if missing_words:
+                if self.g2p_model:
+                    _LOGGER.debug("Guessing pronunciations of %s", missing_words)
+                    guesses = rhasspyasr_kaldi.guess_pronunciations(
+                        missing_words,
+                        self.g2p_model,
+                        g2p_word_transform=self.g2p_word_transform,
+                        num_guesses=pronounce.numGuesses,
+                    )
+
+                    # Add guesses to result
+                    for guess_word, guess_phonemes in guesses:
+                        result_phonemes = result.wordPhonemes.get(guess_word) or []
+                        result_phonemes.append(
+                            G2pPronunciation(phonemes=guess_phonemes, guessed=True)
+                        )
+                        result.wordPhonemes[guess_word] = result_phonemes
+                else:
+                    _LOGGER.warning("No g2p model. Cannot guess pronunciations.")
+
+            return result
+        except Exception as e:
+            _LOGGER.exception("handle_pronounce")
+            return G2pError(
+                error=str(e),
+                context=f"model={self.model_dir}, graph={self.graph_dir}",
+                siteId=pronounce.siteId,
+                sessionId=pronounce.id,
+            )
+
     # -------------------------------------------------------------------------
 
     def on_connect(self, client, userdata, flags, rc):
@@ -352,14 +449,20 @@ class AsrHermesMqtt:
                 AsrToggleOff.topic(),
                 AsrStartListening.topic(),
                 AsrStopListening.topic(),
+                G2pPronounce.topic(),
             ]
 
-            if self.audioframe_topics:
+            if self.siteIds:
                 # Specific siteIds
-                topics.extend(self.audioframe_topics)
+                for siteId in self.siteIds:
+                    topics.extend(
+                        [AudioFrame.topic(siteId=siteId), AsrTrain.topic(siteId=siteId)]
+                    )
             else:
                 # All siteIds
-                topics.append(AudioFrame.topic(siteId="+"))
+                topics.extend(
+                    [AudioFrame.topic(siteId="+"), AsrTrain.topic(siteId="+")]
+                )
 
             for topic in topics:
                 self.client.subscribe(topic)
@@ -391,17 +494,19 @@ class AsrHermesMqtt:
 
             if AudioFrame.is_topic(msg.topic):
                 # Check siteId
-                if (not self.audioframe_topics) or (
-                    msg.topic in self.audioframe_topics
-                ):
+                siteId = AudioFrame.get_siteId(msg.topic)
+                if (not self.siteIds) or (siteId in self.siteIds):
                     # Add to all active sessions
                     if self.first_audio:
                         _LOGGER.debug("Receiving audio")
                         self.first_audio = False
 
-                    siteId = AudioFrame.get_siteId(msg.topic)
                     for result in self.handle_audio_frame(msg.payload, siteId=siteId):
-                        self.publish(result)
+                        if isinstance(result, Message):
+                            self.publish(result)
+                        else:
+                            message, topic_args = result
+                            self.publish(message, **topic_args)
 
             elif msg.topic == AsrStartListening.topic():
                 # hermes/asr/startListening
@@ -416,16 +521,42 @@ class AsrHermesMqtt:
                 json_payload = json.loads(msg.payload)
                 if self._check_siteId(json_payload):
                     for result in self.stop_listening(AsrStopListening(**json_payload)):
-                        self.publish(result)
+                        if isinstance(result, Message):
+                            self.publish(result)
+                        else:
+                            message, topic_args = result
+                            self.publish(message, **topic_args)
+            elif AsrTrain.is_topic(msg.topic):
+                # rhasspy/asr/<siteId>/train
+                siteId = AsrTrain.get_siteId(msg.topic)
+                if (not self.siteIds) or (siteId in self.siteIds):
+                    json_payload = json.loads(msg.payload)
+                    result = self.handle_train(AsrTrain(**json_payload), siteId=siteId)
+                    self.publish(result)
+            elif msg.topic == G2pPronounce.topic():
+                # rhasspy/g2p/pronounce
+                json_payload = json.loads(msg.payload or "{}")
+                if self._check_siteId(json_payload):
+                    result = self.handle_pronounce(G2pPronounce(**json_payload))
+                    self.publish(result)
         except Exception:
             _LOGGER.exception("on_message")
 
     def publish(self, message: Message, **topic_args):
         """Publish a Hermes message to MQTT."""
         try:
-            _LOGGER.debug("-> %s", message)
+            if isinstance(message, AsrAudioCaptured):
+                _LOGGER.debug(
+                    "-> %s(%s byte(s))",
+                    message.__class__.__name__,
+                    len(message.wav_bytes),
+                )
+                payload = message.wav_bytes
+            else:
+                _LOGGER.debug("-> %s", message)
+                payload = json.dumps(attr.asdict(message))
+
             topic = message.topic(**topic_args)
-            payload = json.dumps(attr.asdict(message))
             _LOGGER.debug("Publishing %s char(s) to %s", len(payload), topic)
             self.client.publish(topic, payload)
         except Exception:
@@ -481,3 +612,15 @@ class AsrHermesMqtt:
 
                 # Return original audio
                 return wav_file.readframes(wav_file.getnframes())
+
+    def to_wav_bytes(self, audio_data: bytes) -> bytes:
+        """Wrap raw audio data in WAV."""
+        with io.BytesIO() as wav_buffer:
+            wav_file: wave.Wave_write = wave.open(wav_buffer, mode="wb")
+            with wav_file:
+                wav_file.setframerate(self.sample_rate)
+                wav_file.setsampwidth(self.sample_width)
+                wav_file.setnchannels(self.channels)
+                wav_file.writeframesraw(audio_data)
+
+            return wav_buffer.getvalue()
