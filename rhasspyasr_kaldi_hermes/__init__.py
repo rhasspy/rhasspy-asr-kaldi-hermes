@@ -258,7 +258,7 @@ class AsrHermesMqtt:
         _LOGGER.debug("Stopping listening (sessionId=%s)", message.sessionId)
 
     def handle_audio_frame(
-        self, wav_bytes: bytes, siteId: str = "default"
+        self, frame_wav_bytes: bytes, siteId: str = "default"
     ) -> typing.Iterable[
         typing.Union[
             AsrTextCaptured,
@@ -267,7 +267,7 @@ class AsrHermesMqtt:
         ]
     ]:
         """Process single frame of WAV audio"""
-        audio_data = self.maybe_convert_wav(wav_bytes)
+        audio_data = self.maybe_convert_wav(frame_wav_bytes)
 
         # Add to every open session
         for sessionId, info in self.sessions.items():
@@ -279,8 +279,7 @@ class AsrHermesMqtt:
                 command = info.recorder.process_chunk(audio_data)
                 if info.start_listening.stopOnSilence and command:
                     # Trigger publishing of transcription on silence
-                    for result in self.finish_session(info, siteId, sessionId):
-                        yield result
+                    yield from self.finish_session(info, siteId, sessionId)
             except Exception as e:
                 _LOGGER.exception("handle_audio_frame")
                 yield AsrError(
@@ -573,7 +572,7 @@ class AsrHermesMqtt:
 
     # -------------------------------------------------------------------------
 
-    def _convert_wav(self, wav_data: bytes) -> bytes:
+    def _convert_wav(self, wav_bytes: bytes) -> bytes:
         """Converts WAV data to required format with sox. Return raw audio."""
         return subprocess.run(
             [
@@ -595,7 +594,7 @@ class AsrHermesMqtt:
             ],
             check=True,
             stdout=subprocess.PIPE,
-            input=wav_data,
+            input=wav_bytes,
         ).stdout
 
     def maybe_convert_wav(self, wav_bytes: bytes) -> bytes:
@@ -621,6 +620,6 @@ class AsrHermesMqtt:
                 wav_file.setframerate(self.sample_rate)
                 wav_file.setsampwidth(self.sample_width)
                 wav_file.setnchannels(self.channels)
-                wav_file.writeframesraw(audio_data)
+                wav_file.writeframes(audio_data)
 
             return wav_buffer.getvalue()
