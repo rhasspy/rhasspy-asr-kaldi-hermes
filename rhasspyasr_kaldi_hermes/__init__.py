@@ -487,11 +487,7 @@ class AsrHermesMqtt:
                     self.enabled = False
                     _LOGGER.debug("Disabled")
 
-            if not self.enabled:
-                # Disabled
-                return
-
-            if AudioFrame.is_topic(msg.topic):
+            if self.enabled and AudioFrame.is_topic(msg.topic):
                 # Check siteId
                 siteId = AudioFrame.get_siteId(msg.topic)
                 if (not self.siteIds) or (siteId in self.siteIds):
