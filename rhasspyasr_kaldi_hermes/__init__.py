@@ -32,6 +32,9 @@ _LOGGER = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
 
+AudioCapturedType = typing.Tuple[AsrAudioCaptured, typing.Dict[str, typing.Any]]
+StopListeningType = typing.Union[AsrTextCaptured, AsrError, AudioCapturedType]
+
 
 @attr.s(auto_attribs=True, slots=True)
 class TranscriberInfo:
@@ -124,7 +127,7 @@ class AsrHermesMqtt:
 
     def start_listening(
         self, message: AsrStartListening
-    ) -> typing.Iterable[typing.Union[AsrTextCaptured, AsrError]]:
+    ) -> typing.Iterable[typing.Union[StopListeningType, AsrError]]:
         """Start recording audio data for a session."""
         try:
             if message.sessionId in self.sessions:
@@ -222,13 +225,7 @@ class AsrHermesMqtt:
 
     def stop_listening(
         self, message: AsrStopListening
-    ) -> typing.Iterable[
-        typing.Union[
-            AsrTextCaptured,
-            AsrError,
-            typing.Tuple[AsrAudioCaptured, typing.Dict[str, typing.Any]],
-        ]
-    ]:
+    ) -> typing.Iterable[StopListeningType]:
         """Stop recording audio data for a session."""
         info = self.sessions.pop(message.sessionId, None)
         if info:
@@ -277,6 +274,8 @@ class AsrHermesMqtt:
                 # Check for voice command end
                 assert info.recorder is not None
                 command = info.recorder.process_chunk(audio_data)
+
+                assert info.start_listening is not None
                 if info.start_listening.stopOnSilence and command:
                     # Trigger publishing of transcription on silence
                     yield from self.finish_session(info, siteId, sessionId)
@@ -291,7 +290,7 @@ class AsrHermesMqtt:
 
     def finish_session(
         self, info: TranscriberInfo, siteId: str, sessionId: str
-    ) -> typing.Iterable[AsrTextCaptured]:
+    ) -> typing.Iterable[typing.Union[AsrTextCaptured, AudioCapturedType]]:
         """Publish transcription result for a session if not already published"""
 
         assert info.recorder is not None
@@ -327,6 +326,7 @@ class AsrHermesMqtt:
                     text="", likelihood=0, seconds=0, siteId=siteId, sessionId=sessionId
                 )
 
+            assert info.start_listening is not None
             if info.start_listening.sendAudioCaptured:
                 wav_bytes = self.to_wav_bytes(audio_data)
 
@@ -549,10 +549,10 @@ class AsrHermesMqtt:
                 payload = message.wav_bytes
             else:
                 _LOGGER.debug("-> %s", message)
-                payload = json.dumps(attr.asdict(message))
+                payload = json.dumps(attr.asdict(message)).encode()
 
             topic = message.topic(**topic_args)
-            _LOGGER.debug("Publishing %s char(s) to %s", len(payload), topic)
+            _LOGGER.debug("Publishing %s byte(s) to %s", len(payload), topic)
             self.client.publish(topic, payload)
         except Exception:
             _LOGGER.exception("on_message")
