@@ -69,6 +69,8 @@ class AsrHermesMqtt:
         g2p_word_transform: typing.Optional[typing.Callable[[str], str]] = None,
         dictionary_path: typing.Optional[Path] = None,
         language_model_path: typing.Optional[Path] = None,
+        unknown_words: typing.Optional[Path] = None,
+        no_overwrite_train: bool = False,
         siteIds: typing.Optional[typing.List[str]] = None,
         enabled: bool = True,
         sample_rate: int = 16000,
@@ -99,6 +101,12 @@ class AsrHermesMqtt:
         # function.
         self.g2p_model = g2p_model
         self.g2p_word_transform = g2p_word_transform
+
+        # If True, HCLG.fst won't be overwritten during training
+        self.no_overwrite_train = no_overwrite_train
+
+        # Path to write missing words and guessed pronunciations
+        self.unknown_words = unknown_words
 
         self.siteIds = siteIds or []
         self.enabled = enabled
@@ -348,18 +356,22 @@ class AsrHermesMqtt:
                 self.model_dir and self.graph_dir
             ), "Model and graph dirs are required to train"
 
-            # Re-generate HCLG.fst
-            rhasspyasr_kaldi.train(
-                train.graph_dict,
-                self.base_dictionaries,
-                self.model_dir,
-                self.graph_dir,
-                dictionary=self.dictionary_path,
-                language_model=self.language_model_path,
-                dictionary_word_transform=self.dictionary_word_transform,
-                g2p_model=self.g2p_model,
-                g2p_word_transform=self.g2p_word_transform,
-            )
+            if not self.no_overwrite_train:
+                # Re-generate HCLG.fst
+                rhasspyasr_kaldi.train(
+                    train.graph_dict,
+                    self.base_dictionaries,
+                    self.model_dir,
+                    self.graph_dir,
+                    dictionary=self.dictionary_path,
+                    language_model=self.language_model_path,
+                    dictionary_word_transform=self.dictionary_word_transform,
+                    g2p_model=self.g2p_model,
+                    g2p_word_transform=self.g2p_word_transform,
+                    missing_words_path=self.unknown_words,
+                )
+            else:
+                _LOGGER.warning("Not overwriting HCLG.fst")
 
             return AsrTrainSuccess(id=train.id)
         except Exception as e:

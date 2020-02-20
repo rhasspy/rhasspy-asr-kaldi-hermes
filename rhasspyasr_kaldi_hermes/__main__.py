@@ -77,6 +77,14 @@ def get_args() -> argparse.Namespace:
         default="ignore",
         help="Case transformation for g2p words (training, default: ignore)",
     )
+    parser.add_argument(
+        "--unknown-words", help="Path to write missing words from dictionary (training)"
+    )
+    parser.add_argument(
+        "--no-overwrite-train",
+        action="store_true",
+        help="Don't overwrite HCLG.fst during training",
+    )
 
     # MQTT settings
     parser.add_argument(
@@ -123,6 +131,9 @@ def run_mqtt(args: argparse.Namespace):
     if args.language_model:
         args.language_model = Path(args.language_model)
 
+    if args.unknown_words:
+        args.unknown_words = Path(args.unknown_words)
+
     # Load transciber
     _LOGGER.debug(
         "Loading Kaldi model from %s (graph=%s)",
@@ -149,6 +160,8 @@ def run_mqtt(args: argparse.Namespace):
             language_model_path=args.language_model,
             g2p_model=args.g2p_model,
             g2p_word_transform=get_word_transform(args.g2p_casing),
+            unknown_words=args.unknown_words,
+            no_overwrite_train=args.no_overwrite_train,
             siteIds=args.siteId,
         )
 
