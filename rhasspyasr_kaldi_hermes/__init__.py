@@ -23,7 +23,7 @@ from rhasspyhermes.asr import (
     AsrTrain,
     AsrTrainSuccess,
 )
-from rhasspyhermes.audioserver import AudioFrame
+from rhasspyhermes.audioserver import AudioFrame, AudioSessionFrame
 from rhasspyhermes.base import Message
 from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
@@ -263,7 +263,10 @@ class AsrHermesMqtt:
         _LOGGER.debug("Stopping listening (sessionId=%s)", message.sessionId)
 
     def handle_audio_frame(
-        self, frame_wav_bytes: bytes, siteId: str = "default"
+        self,
+        frame_wav_bytes: bytes,
+        siteId: str = "default",
+        sessionId: typing.Optional[str] = None,
     ) -> typing.Iterable[
         typing.Union[
             AsrTextCaptured,
@@ -274,8 +277,15 @@ class AsrHermesMqtt:
         """Process single frame of WAV audio"""
         audio_data = self.maybe_convert_wav(frame_wav_bytes)
 
+        if sessionId is None:
+            # Add to every open session
+            target_sessions = self.sessions.items()
+        else:
+            # Add to single session
+            target_sessions = [(sessionId, self.sessions[sessionId])]
+
         # Add to every open session
-        for sessionId, info in self.sessions.items():
+        for sessionId, info in target_sessions:
             try:
                 info.frame_queue.put(audio_data)
 
@@ -467,12 +477,20 @@ class AsrHermesMqtt:
                 # Specific siteIds
                 for siteId in self.siteIds:
                     topics.extend(
-                        [AudioFrame.topic(siteId=siteId), AsrTrain.topic(siteId=siteId)]
+                        [
+                            AudioFrame.topic(siteId=siteId),
+                            AudioSessionFrame.topic(siteId=siteId, sessionId="+"),
+                            AsrTrain.topic(siteId=siteId),
+                        ]
                     )
             else:
                 # All siteIds
                 topics.extend(
-                    [AudioFrame.topic(siteId="+"), AsrTrain.topic(siteId="+")]
+                    [
+                        AudioFrame.topic(siteId="+"),
+                        AudioSessionFrame.topic(siteId="+", sessionId="+"),
+                        AsrTrain.topic(siteId="+"),
+                    ]
                 )
 
             for topic in topics:
@@ -509,6 +527,26 @@ class AsrHermesMqtt:
                         self.first_audio = False
 
                     for result in self.handle_audio_frame(msg.payload, siteId=siteId):
+                        if isinstance(result, Message):
+                            self.publish(result)
+                        else:
+                            message, topic_args = result
+                            self.publish(message, **topic_args)
+            elif self.enabled and AudioSessionFrame.is_topic(msg.topic):
+                # Check siteId
+                siteId = AudioSessionFrame.get_siteId(msg.topic)
+                sessionId = AudioSessionFrame.get_sessionId(msg.topic)
+                if ((not self.siteIds) or (siteId in self.siteIds)) and (
+                    sessionId in self.sessions
+                ):
+                    if self.first_audio:
+                        _LOGGER.debug("Receiving audio")
+                        self.first_audio = False
+
+                    # Add to specific session only
+                    for result in self.handle_audio_frame(
+                        msg.payload, siteId=siteId, sessionId=sessionId
+                    ):
                         if isinstance(result, Message):
                             self.publish(result)
                         else:
