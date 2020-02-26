@@ -279,13 +279,13 @@ class AsrHermesMqtt:
 
         if sessionId is None:
             # Add to every open session
-            target_sessions = self.sessions.items()
+            target_sessions = list(self.sessions.items())
         else:
             # Add to single session
             target_sessions = [(sessionId, self.sessions[sessionId])]
 
         # Add to every open session
-        for sessionId, info in target_sessions:
+        for target_id, info in target_sessions:
             try:
                 info.frame_queue.put(audio_data)
 
@@ -296,14 +296,14 @@ class AsrHermesMqtt:
                 assert info.start_listening is not None
                 if info.start_listening.stopOnSilence and command:
                     # Trigger publishing of transcription on silence
-                    yield from self.finish_session(info, siteId, sessionId)
+                    yield from self.finish_session(info, siteId, target_id)
             except Exception as e:
                 _LOGGER.exception("handle_audio_frame")
                 yield AsrError(
                     error=str(e),
                     context=repr(info.transcriber),
                     siteId=siteId,
-                    sessionId=sessionId,
+                    sessionId=target_id,
                 )
 
     def finish_session(
