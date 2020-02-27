@@ -1,5 +1,5 @@
+paho-mqtt==1.5.0
 rhasspy-asr-kaldi==0.1.4
-rhasspy-silence==0.1.2
 rhasspy-hermes==0.1.7
 rhasspy-nlu==0.1.6
-paho-mqtt==1.5.0
+rhasspy-silence==0.1.2
