@@ -2,15 +2,18 @@
 import io
 import json
 import logging
+import os
 import subprocess
 import threading
 import typing
 import wave
+from collections import defaultdict
 from pathlib import Path
 from queue import Queue
 
 import attr
 import rhasspyasr_kaldi
+from rhasspyasr_kaldi import PronunciationsType
 from rhasspyasr import Transcriber, Transcription
 from rhasspyhermes.asr import (
     AsrAudioCaptured,
@@ -49,6 +52,15 @@ class TranscriberInfo:
     result_sent: bool = False
     start_listening: typing.Optional[AsrStartListening] = None
     thread: typing.Optional[threading.Thread] = None
+
+
+@attr.s(auto_attribs=True, slots=True)
+class PronunciationDictionary:
+    """Details of a phonetic dictionary."""
+
+    path: Path
+    pronunciations: PronunciationsType = {}
+    mtime_ns: typing.Optional[int] = None
 
 
 # -----------------------------------------------------------------------------
@@ -94,7 +106,9 @@ class AsrHermesMqtt:
         self.language_model_path = language_model_path
 
         # Pronunciation dictionaries and word transform function
-        self.base_dictionaries = base_dictionaries or []
+        self.base_dictionaries = [
+            PronunciationDictionary(path=path) for path in base_dictionaries
+        ]
         self.dictionary_word_transform = dictionary_word_transform
 
         # Grapheme-to-phonme model (Phonetisaurus FST) and word transform
@@ -366,11 +380,35 @@ class AsrHermesMqtt:
                 self.model_dir and self.graph_dir
             ), "Model and graph dirs are required to train"
 
+            # Load base dictionaries
+            pronunciations: PronunciationsType = defaultdict(list)
+            for base_dict in self.base_dictionaries:
+                if not os.path.exists(base_dict.path):
+                    _LOGGER.warning(
+                        "Base dictionary does not exist: %s", base_dict.path
+                    )
+                    continue
+
+                # Re-load dictionary if modification time has changed
+                dict_mtime_ns = os.stat(base_dict.path).st_mtime_ns
+                if (base_dict.mtime_ns is None) or (
+                    base_dict.mtime_ns != dict_mtime_ns
+                ):
+                    base_dict.mtime_ns = dict_mtime_ns
+                    _LOGGER.debug("Loading base dictionary from %s", base_dict.path)
+                    with open(base_dict.path, "r") as base_dict_file:
+                        rhasspyasr_kaldi.read_dict(
+                            base_dict_file, word_dict=base_dict.pronunciations
+                        )
+
+                for word in base_dict.pronunciations:
+                    pronunciations[word].extend(base_dict.pronunciations[word])
+
             if not self.no_overwrite_train:
                 # Re-generate HCLG.fst
                 rhasspyasr_kaldi.train(
                     train.graph_dict,
-                    self.base_dictionaries,
+                    pronunciations,
                     self.model_dir,
                     self.graph_dir,
                     dictionary=self.dictionary_path,
