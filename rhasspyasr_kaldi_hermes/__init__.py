@@ -13,8 +13,8 @@ from queue import Queue
 
 import attr
 import rhasspyasr_kaldi
-from rhasspyasr_kaldi import PronunciationsType
 from rhasspyasr import Transcriber, Transcription
+from rhasspyasr_kaldi import PronunciationsType
 from rhasspyhermes.asr import (
     AsrAudioCaptured,
     AsrError,
@@ -107,6 +107,7 @@ class AsrHermesMqtt:
         self.language_model_path = language_model_path
 
         # Pronunciation dictionaries and word transform function
+        base_dictionaries = base_dictionaries = []
         self.base_dictionaries = [
             PronunciationDictionary(path=path) for path in base_dictionaries
         ]
@@ -441,10 +442,10 @@ class AsrHermesMqtt:
             # Load base dictionaries
             pronunciations: typing.Dict[str, typing.List[typing.List[str]]] = {}
 
-            for base_dict_path in self.base_dictionaries:
-                if base_dict_path.is_file():
-                    _LOGGER.debug("Loading base dictionary from %s", base_dict_path)
-                    with open(base_dict_path, "r") as base_dict_file:
+            for base_dict in self.base_dictionaries:
+                if base_dict.path.is_file():
+                    _LOGGER.debug("Loading base dictionary from %s", base_dict.path)
+                    with open(base_dict.path, "r") as base_dict_file:
                         rhasspyasr_kaldi.read_dict(
                             base_dict_file, word_dict=pronunciations
                         )
