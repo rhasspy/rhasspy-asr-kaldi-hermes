@@ -540,9 +540,6 @@ class AsrHermesMqtt:
     def on_message(self, client, userdata, msg):
         """Received message from MQTT broker."""
         try:
-            if not msg.topic.endswith("/audioFrame"):
-                _LOGGER.debug("Received %s byte(s) on %s", len(msg.payload), msg.topic)
-
             # Check enable/disable messages
             if msg.topic == AsrToggleOn.topic():
                 json_payload = json.loads(msg.payload or "{}")
