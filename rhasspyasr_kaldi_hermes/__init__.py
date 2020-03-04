@@ -107,7 +107,7 @@ class AsrHermesMqtt:
         self.language_model_path = language_model_path
 
         # Pronunciation dictionaries and word transform function
-        base_dictionaries = base_dictionaries = []
+        base_dictionaries = base_dictionaries or []
         self.base_dictionaries = [
             PronunciationDictionary(path=path) for path in base_dictionaries
         ]
