@@ -1,6 +1,7 @@
 """Command-line interface to rhasspyasr-kaldi-hermes"""
 import argparse
 import logging
+import socket
 import typing
 from pathlib import Path
 
@@ -142,8 +143,19 @@ def run_mqtt(args: argparse.Namespace):
     )
 
     def make_transcriber():
+        port_num: typing.Optional[int] = None
+        try:
+            # Find a free port (minor race condition)
+            # https://gist.github.com/gabrielfalcao/20e567e188f588b65ba2
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.bind(("", 0))
+            _, port_num = s.getsockname()
+            s.close()
+        except Exception:
+            _LOGGER.exception("make_transcriber")
+
         return KaldiCommandLineTranscriber(
-            args.model_type, args.model_dir, args.graph_dir
+            args.model_type, args.model_dir, args.graph_dir, port_num=port_num
         )
 
     try:

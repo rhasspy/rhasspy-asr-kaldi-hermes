@@ -207,6 +207,14 @@ class AsrHermesMqtt:
                             info.result_event.set()
                     except Exception:
                         _LOGGER.exception("session proc")
+                        info.transcriber = None
+
+                        # Signal failure
+                        info.result = Transcription(
+                            text="", likelihood=0, transcribe_seconds=0, wav_seconds=0
+                        )
+
+                        info.result_event.set()
 
                 # Run in separate thread
                 info.thread = threading.Thread(
@@ -260,13 +268,14 @@ class AsrHermesMqtt:
                 ):
                     yield result
 
-                # Reset state
-                info.result = None
-                info.result_event.clear()
-                info.result_sent = False
+                if info.transcriber is not None:
+                    # Reset state
+                    info.result = None
+                    info.result_event.clear()
+                    info.result_sent = False
 
-                # Add to free pool
-                self.free_transcribers.append(info)
+                    # Add to free pool
+                    self.free_transcribers.append(info)
             except Exception as e:
                 _LOGGER.exception("stop_listening")
                 yield AsrError(
