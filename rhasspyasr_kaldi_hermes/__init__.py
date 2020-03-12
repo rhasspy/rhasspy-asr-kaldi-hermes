@@ -31,7 +31,7 @@ from rhasspyhermes.base import Message
 from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger("rhasspyasr_kaldi_hermes")
 
 # -----------------------------------------------------------------------------
 

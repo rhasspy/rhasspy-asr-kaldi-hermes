@@ -10,7 +10,7 @@ from rhasspyasr_kaldi import KaldiCommandLineTranscriber
 
 from . import AsrHermesMqtt
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger("rhasspyasr_kaldi_hermes")
 
 # -----------------------------------------------------------------------------
 
