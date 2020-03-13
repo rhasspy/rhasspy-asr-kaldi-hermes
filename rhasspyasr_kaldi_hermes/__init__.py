@@ -200,22 +200,7 @@ class AsrHermesMqtt:
                                 channels,
                             )
 
-                            if result is None:
-                                result = Transcription(
-                                    text="",
-                                    likelihood=0,
-                                    transcribe_seconds=0,
-                                    wav_seconds=0,
-                                )
-
-                                # Restart transcriber
-                                try:
-                                    info.transcriber.stop()
-                                except Exception:
-                                    _LOGGER.exception("Transcriber restart")
-
-                                info.transcriber = transcriber_factory()
-
+                            assert result is not None, "Null transcription"
                             _LOGGER.debug("Transcription result: %s", result)
 
                             # Signal completion
@@ -224,7 +209,14 @@ class AsrHermesMqtt:
                     except Exception:
                         _LOGGER.exception("session proc")
 
+                        # Stop transcriber
+                        try:
+                            info.transcriber.stop()
+                        except Exception:
+                            _LOGGER.exception("Transcriber restart")
+
                         # Signal failure
+                        info.transcriber = None
                         info.result = Transcription(
                             text="", likelihood=0, transcribe_seconds=0, wav_seconds=0
                         )
