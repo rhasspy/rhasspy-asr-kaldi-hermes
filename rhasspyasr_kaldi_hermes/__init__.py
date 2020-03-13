@@ -316,16 +316,21 @@ class AsrHermesMqtt:
             # Add to single session
             target_sessions = [(sessionId, self.sessions[sessionId])]
 
-        # Add to every open session
+        # Add to every open session with matching siteId
         for target_id, info in target_sessions:
             try:
+                assert info.start_listening is not None
+
+                # Match siteId
+                if info.start_listening.siteId != siteId:
+                    continue
+
                 info.frame_queue.put(audio_data)
 
                 # Check for voice command end
                 assert info.recorder is not None
                 command = info.recorder.process_chunk(audio_data)
 
-                assert info.start_listening is not None
                 if info.start_listening.stopOnSilence and command:
                     # Trigger publishing of transcription on silence
                     yield from self.finish_session(info, siteId, target_id)
