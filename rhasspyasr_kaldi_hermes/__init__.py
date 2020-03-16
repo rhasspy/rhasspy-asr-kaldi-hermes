@@ -1,4 +1,5 @@
 """Hermes MQTT server for Rhasspy ASR using Kaldi"""
+import gzip
 import io
 import json
 import logging
@@ -12,6 +13,7 @@ from pathlib import Path
 from queue import Queue
 
 import attr
+import networkx as nx
 import rhasspyasr_kaldi
 from rhasspyasr import Transcriber, Transcription
 from rhasspyasr_kaldi import PronunciationsType
@@ -430,9 +432,14 @@ class AsrHermesMqtt:
                     pronunciations[word].extend(base_dict.pronunciations[word])
 
             if not self.no_overwrite_train:
+                _LOGGER.debug("Loading %s", train.graph_path)
+                with gzip.GzipFile(train.graph_path, mode="rb") as graph_gzip:
+                    graph = nx.readwrite.gpickle.read_gpickle(graph_gzip)
+
                 # Re-generate HCLG.fst
+                _LOGGER.debug("Starting training")
                 rhasspyasr_kaldi.train(
-                    train.graph_dict,
+                    graph,
                     pronunciations,
                     self.model_dir,
                     self.graph_dir,
@@ -638,6 +645,7 @@ class AsrHermesMqtt:
                     self.publish(result)
         except Exception:
             _LOGGER.exception("on_message")
+            _LOGGER.error("%s %s", msg.topic, msg.payload)
 
     def publish(self, message: Message, **topic_args):
         """Publish a Hermes message to MQTT."""
