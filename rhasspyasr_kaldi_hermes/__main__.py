@@ -1,5 +1,6 @@
 """Command-line interface to rhasspyasr-kaldi-hermes"""
 import argparse
+import asyncio
 import logging
 import socket
 import typing
@@ -164,6 +165,8 @@ def run_mqtt(args: argparse.Namespace):
         )
 
     try:
+        loop = asyncio.get_event_loop()
+
         # Listen for messages
         client = mqtt.Client()
         hermes = AsrHermesMqtt(
@@ -180,6 +183,7 @@ def run_mqtt(args: argparse.Namespace):
             unknown_words=args.unknown_words,
             no_overwrite_train=args.no_overwrite_train,
             siteIds=args.siteId,
+            loop=loop,
         )
 
         def on_disconnect(client, userdata, flags, rc):
@@ -197,8 +201,10 @@ def run_mqtt(args: argparse.Namespace):
 
         _LOGGER.debug("Connecting to %s:%s", args.host, args.port)
         client.connect(args.host, args.port)
+        client.loop_start()
 
-        client.loop_forever()
+        # Run event loop
+        loop.run_forever()
     except KeyboardInterrupt:
         pass
     finally:

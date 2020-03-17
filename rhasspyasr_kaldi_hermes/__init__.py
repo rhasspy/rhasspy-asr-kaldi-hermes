@@ -1,4 +1,5 @@
 """Hermes MQTT server for Rhasspy ASR using Kaldi"""
+import asyncio
 import gzip
 import io
 import json
@@ -38,6 +39,9 @@ _LOGGER = logging.getLogger("rhasspyasr_kaldi_hermes")
 # -----------------------------------------------------------------------------
 
 TopicArgs = typing.Mapping[str, typing.Any]
+GeneratorType = typing.AsyncIterable[
+    typing.Union[Message, typing.Tuple[Message, TopicArgs]]
+]
 AudioCapturedType = typing.Tuple[AsrAudioCaptured, typing.Dict[str, typing.Any]]
 StopListeningType = typing.Union[AsrTextCaptured, AsrError, AudioCapturedType]
 
@@ -95,6 +99,7 @@ class AsrHermesMqtt:
             typing.Callable[[], VoiceCommandRecorder]
         ] = None,
         session_result_timeout: float = 30,
+        loop=None,
     ):
         self.client = client
 
@@ -149,16 +154,19 @@ class AsrHermesMqtt:
 
         self.first_audio: bool = True
 
+        # Event loop
+        self.loop = loop or asyncio.get_event_loop()
+
     # -------------------------------------------------------------------------
 
-    def start_listening(
+    async def start_listening(
         self, message: AsrStartListening
-    ) -> typing.Iterable[typing.Union[StopListeningType, AsrError]]:
+    ) -> typing.AsyncIterable[typing.Union[StopListeningType, AsrError]]:
         """Start recording audio data for a session."""
         try:
             if message.sessionId in self.sessions:
                 # Stop existing session
-                for result in self.stop_listening(
+                async for result in self.stop_listening(
                     AsrStopListening(sessionId=message.sessionId)
                 ):
                     yield result
@@ -264,15 +272,15 @@ class AsrHermesMqtt:
                 sessionId=message.sessionId,
             )
 
-    def stop_listening(
+    async def stop_listening(
         self, message: AsrStopListening
-    ) -> typing.Iterable[StopListeningType]:
+    ) -> typing.AsyncIterable[StopListeningType]:
         """Stop recording audio data for a session."""
         info = self.sessions.pop(message.sessionId, None)
         if info:
             try:
                 # Trigger publishing of transcription on end of session
-                for result in self.finish_session(
+                async for result in self.finish_session(
                     info, message.siteId, message.sessionId
                 ):
                     yield result
@@ -296,12 +304,12 @@ class AsrHermesMqtt:
 
         _LOGGER.debug("Stopping listening (sessionId=%s)", message.sessionId)
 
-    def handle_audio_frame(
+    async def handle_audio_frame(
         self,
         frame_wav_bytes: bytes,
         siteId: str = "default",
         sessionId: typing.Optional[str] = None,
-    ) -> typing.Iterable[
+    ) -> typing.AsyncIterable[
         typing.Union[
             AsrTextCaptured,
             AsrError,
@@ -335,7 +343,8 @@ class AsrHermesMqtt:
 
                 if info.start_listening.stopOnSilence and command:
                     # Trigger publishing of transcription on silence
-                    yield from self.finish_session(info, siteId, target_id)
+                    async for result in self.finish_session(info, siteId, target_id):
+                        yield result
             except Exception as e:
                 _LOGGER.exception("handle_audio_frame")
                 yield AsrError(
@@ -345,9 +354,9 @@ class AsrHermesMqtt:
                     sessionId=target_id,
                 )
 
-    def finish_session(
+    async def finish_session(
         self, info: TranscriberInfo, siteId: str, sessionId: str
-    ) -> typing.Iterable[typing.Union[AsrTextCaptured, AudioCapturedType]]:
+    ) -> typing.AsyncIterable[typing.Union[AsrTextCaptured, AudioCapturedType]]:
         """Publish transcription result for a session if not already published"""
 
         assert info.recorder is not None
@@ -396,9 +405,9 @@ class AsrHermesMqtt:
 
     # -------------------------------------------------------------------------
 
-    def handle_train(
+    async def handle_train(
         self, train: AsrTrain, siteId: str = "default"
-    ) -> typing.Iterable[
+    ) -> typing.AsyncIterable[
         typing.Union[typing.Tuple[AsrTrainSuccess, TopicArgs], AsrError]
     ]:
         """Re-trains ASR system."""
@@ -458,9 +467,9 @@ class AsrHermesMqtt:
             _LOGGER.exception("train")
             yield AsrError(error=str(e), siteId=siteId, sessionId=train.id)
 
-    def handle_pronounce(
+    async def handle_pronounce(
         self, pronounce: G2pPronounce
-    ) -> typing.Union[G2pPhonemes, G2pError]:
+    ) -> typing.AsyncIterable[typing.Union[G2pPhonemes, G2pError]]:
         """Looks up or guesses word pronunciation(s)."""
         try:
             result = G2pPhonemes(
@@ -520,10 +529,10 @@ class AsrHermesMqtt:
                 else:
                     _LOGGER.warning("No g2p model. Cannot guess pronunciations.")
 
-            return result
+            yield result
         except Exception as e:
             _LOGGER.exception("handle_pronounce")
-            return G2pError(
+            yield G2pError(
                 error=str(e),
                 context=f"model={self.model_dir}, graph={self.graph_dir}",
                 siteId=pronounce.siteId,
@@ -641,8 +650,9 @@ class AsrHermesMqtt:
                 # rhasspy/g2p/pronounce
                 json_payload = json.loads(msg.payload or "{}")
                 if self._check_siteId(json_payload):
-                    result = self.handle_pronounce(G2pPronounce.from_dict(json_payload))
-                    self.publish(result)
+                    self.publish_all(
+                        self.handle_pronounce(G2pPronounce.from_dict(json_payload))
+                    )
         except Exception:
             _LOGGER.exception("on_message")
             _LOGGER.error("%s %s", msg.topic, msg.payload)
@@ -667,19 +677,20 @@ class AsrHermesMqtt:
         except Exception:
             _LOGGER.exception("on_message")
 
-    def publish_all(
-        self,
-        messages: typing.Iterable[
-            typing.Union[Message, typing.Tuple[Message, TopicArgs]]
-        ],
-    ):
-        """Publish all messages."""
-        for maybe_message in messages:
+    def publish_all(self, async_generator: GeneratorType):
+        """Publish all messages from an async generator"""
+        asyncio.run_coroutine_threadsafe(
+            self.async_publish_all(async_generator), self.loop
+        )
+
+    async def async_publish_all(self, async_generator: GeneratorType):
+        """Enumerate all messages in an async generator publish them"""
+        async for maybe_message in async_generator:
             if isinstance(maybe_message, Message):
                 self.publish(maybe_message)
             else:
-                message, topic_args = maybe_message
-                self.publish(message, **topic_args)
+                message, kwargs = maybe_message
+                self.publish(message, **kwargs)
 
     # -------------------------------------------------------------------------
 
