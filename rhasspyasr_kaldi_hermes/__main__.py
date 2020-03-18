@@ -186,19 +186,6 @@ def run_mqtt(args: argparse.Namespace):
             loop=loop,
         )
 
-        def on_disconnect(client, userdata, flags, rc):
-            try:
-                # Automatically reconnect
-                _LOGGER.info("Disconnected. Trying to reconnect...")
-                client.reconnect()
-            except Exception:
-                _LOGGER.exception("on_disconnect")
-
-        # Connect
-        client.on_connect = hermes.on_connect
-        client.on_message = hermes.on_message
-        client.on_disconnect = on_disconnect
-
         _LOGGER.debug("Connecting to %s:%s", args.host, args.port)
         client.connect(args.host, args.port)
         client.loop_start()
