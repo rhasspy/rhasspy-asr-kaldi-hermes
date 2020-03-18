@@ -5,12 +5,7 @@ ARG BUILD_ARCH=amd64
 # Install system dependencies
 RUN apt-get update && \
     apt-get install --no-install-recommends --yes \
-    libgfortran3 sox
-
-# Install pre-built mitlm
-ADD mitlm-0.4.2-${BUILD_ARCH}.tar.gz /
-RUN mv /mitlm/bin/* /usr/bin/
-RUN mv /mitlm/lib/* /usr/lib/
+    libngram-tools sox
 
 # Install pre-built phonetisaurus
 ADD phonetisaurus-2019-${BUILD_ARCH}.tar.gz /usr/

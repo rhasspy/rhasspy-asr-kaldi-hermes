@@ -16,8 +16,8 @@ from queue import Queue
 import attr
 import networkx as nx
 import rhasspyasr_kaldi
+import rhasspynlu
 from rhasspyasr import Transcriber, Transcription
-from rhasspyasr_kaldi import PronunciationsType
 from rhasspyhermes.asr import (
     AsrAudioCaptured,
     AsrError,
@@ -32,6 +32,7 @@ from rhasspyhermes.asr import (
 from rhasspyhermes.audioserver import AudioFrame, AudioSessionFrame
 from rhasspyhermes.base import Message
 from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
+from rhasspynlu.g2p import PronunciationsType
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
 _LOGGER = logging.getLogger("rhasspyasr_kaldi_hermes")
@@ -433,7 +434,7 @@ class AsrHermesMqtt:
                     base_dict.mtime_ns = dict_mtime_ns
                     _LOGGER.debug("Loading base dictionary from %s", base_dict.path)
                     with open(base_dict.path, "r") as base_dict_file:
-                        rhasspyasr_kaldi.read_dict(
+                        rhasspynlu.g2p.read_pronunciations(
                             base_dict_file, word_dict=base_dict.pronunciations
                         )
 
@@ -477,13 +478,13 @@ class AsrHermesMqtt:
             )
 
             # Load base dictionaries
-            pronunciations: typing.Dict[str, typing.List[typing.List[str]]] = {}
+            pronunciations: PronunciationsType = {}
 
             for base_dict in self.base_dictionaries:
                 if base_dict.path.is_file():
                     _LOGGER.debug("Loading base dictionary from %s", base_dict.path)
                     with open(base_dict.path, "r") as base_dict_file:
-                        rhasspyasr_kaldi.read_dict(
+                        rhasspynlu.g2p.read_pronunciations(
                             base_dict_file, word_dict=pronunciations
                         )
 
@@ -512,7 +513,7 @@ class AsrHermesMqtt:
             if missing_words:
                 if self.g2p_model:
                     _LOGGER.debug("Guessing pronunciations of %s", missing_words)
-                    guesses = rhasspyasr_kaldi.guess_pronunciations(
+                    guesses = rhasspynlu.g2p.guess_pronunciations(
                         missing_words,
                         self.g2p_model,
                         g2p_word_transform=self.g2p_word_transform,

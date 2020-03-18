@@ -2,7 +2,7 @@ Package: rhasspy-asr-kaldi-hermes
 Version: ${version}
 Section: utils
 Priority: optional
-Depends: sox,libstdc++6
+Depends: sox,libstdc++6,libngram-tools
 Architecture: ${architecture}
 Maintainer: Michael Hansen
 Description: Hermes MQTT service for Rhasspy Kaldi ASR
