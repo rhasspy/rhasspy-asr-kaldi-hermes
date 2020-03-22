@@ -1,14 +1,10 @@
 """Hermes MQTT server for Rhasspy ASR using Kaldi"""
 import asyncio
 import gzip
-import io
-import json
 import logging
 import os
-import subprocess
 import threading
 import typing
-import wave
 from collections import defaultdict
 from pathlib import Path
 from queue import Queue

@@ -7,6 +7,7 @@ import typing
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
+import rhasspyhermes.cli as hermes_cli
 from rhasspyasr_kaldi import KaldiCommandLineTranscriber
 
 from . import AsrHermesMqtt
@@ -20,11 +21,7 @@ def main():
     """Main method."""
     args = get_args()
 
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG, format=args.log_format)
-    else:
-        logging.basicConfig(level=logging.INFO, format=args.log_format)
-
+    hermes_cli.setup_logging(args)
     _LOGGER.debug(args)
 
     run_mqtt(args)
@@ -88,26 +85,7 @@ def get_args() -> argparse.Namespace:
         help="Don't overwrite HCLG.fst during training",
     )
 
-    # MQTT settings
-    parser.add_argument(
-        "--host", default="localhost", help="MQTT host (default: localhost)"
-    )
-    parser.add_argument(
-        "--port", type=int, default=1883, help="MQTT port (default: 1883)"
-    )
-    parser.add_argument(
-        "--siteId",
-        action="append",
-        help="Hermes siteId(s) to listen for (default: all)",
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Print DEBUG messages to the console"
-    )
-    parser.add_argument(
-        "--log-format",
-        default="[%(levelname)s:%(asctime)s] %(name)s: %(message)s",
-        help="Python logger format",
-    )
+    hermes_cli.add_hermes_args(parser)
 
     return parser.parse_args()
 
@@ -187,11 +165,11 @@ def run_mqtt(args: argparse.Namespace):
         )
 
         _LOGGER.debug("Connecting to %s:%s", args.host, args.port)
-        client.connect(args.host, args.port)
+        hermes_cli.connect(client, args)
         client.loop_start()
 
         # Run event loop
-        loop.run_forever()
+        hermes.loop.run_forever()
     except KeyboardInterrupt:
         pass
     finally:
