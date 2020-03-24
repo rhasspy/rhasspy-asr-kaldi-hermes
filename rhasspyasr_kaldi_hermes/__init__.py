@@ -27,7 +27,7 @@ from rhasspyhermes.asr import (
 )
 from rhasspyhermes.audioserver import AudioFrame, AudioSessionFrame
 from rhasspyhermes.base import Message
-from rhasspyhermes.client import HermesClient
+from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
 from rhasspynlu.g2p import PronunciationsType
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
@@ -36,11 +36,7 @@ _LOGGER = logging.getLogger("rhasspyasr_kaldi_hermes")
 
 # -----------------------------------------------------------------------------
 
-TopicArgs = typing.Mapping[str, typing.Any]
-GeneratorType = typing.AsyncIterable[
-    typing.Union[Message, typing.Tuple[Message, TopicArgs]]
-]
-AudioCapturedType = typing.Tuple[AsrAudioCaptured, typing.Dict[str, typing.Any]]
+AudioCapturedType = typing.Tuple[AsrAudioCaptured, TopicArgs]
 StopListeningType = typing.Union[AsrTextCaptured, AsrError, AudioCapturedType]
 
 
@@ -57,6 +53,7 @@ class TranscriberInfo:
     result_sent: bool = False
     start_listening: typing.Optional[AsrStartListening] = None
     thread: typing.Optional[threading.Thread] = None
+    audio_buffer: typing.Optional[bytes] = None
 
 
 @attr.s(auto_attribs=True, slots=True)
@@ -197,7 +194,7 @@ class AsrHermesMqtt(HermesClient):
                 )
             else:
                 # Create new transcriber
-                info = TranscriberInfo(recorder=self.recorder_factory())  # type: ignore
+                info = TranscriberInfo()
                 _LOGGER.debug("Creating new transcriber session %s", message.sessionId)
 
                 def transcribe_proc(
@@ -273,9 +270,15 @@ class AsrHermesMqtt(HermesClient):
             # Signal session thread to start
             info.ready_event.set()
 
-            # Begin silence detection
-            assert info.recorder is not None
-            info.recorder.start()
+            if message.stopOnSilence:
+                # Begin silence detection
+                if info.recorder is None:
+                    info.recorder = self.recorder_factory()
+
+                info.recorder.start()
+            else:
+                # Use internal buffer (no silence detection)
+                info.audio_buffer = bytes()
 
             self.sessions[message.sessionId] = info
             _LOGGER.debug("Starting listening (sessionId=%s)", message.sessionId)
@@ -328,9 +331,7 @@ class AsrHermesMqtt(HermesClient):
         sessionId: typing.Optional[str] = None,
     ) -> typing.AsyncIterable[
         typing.Union[
-            AsrTextCaptured,
-            AsrError,
-            typing.Tuple[AsrAudioCaptured, typing.Dict[str, typing.Any]],
+            AsrTextCaptured, AsrError, typing.Tuple[AsrAudioCaptured, TopicArgs]
         ]
     ]:
         """Process single frame of WAV audio"""
@@ -352,16 +353,23 @@ class AsrHermesMqtt(HermesClient):
                 if info.start_listening.siteId != siteId:
                     continue
 
+                # Push to transcription thread
                 info.frame_queue.put(audio_data)
 
-                # Check for voice command end
-                assert info.recorder is not None
-                command = info.recorder.process_chunk(audio_data)
+                if info.recorder is not None:
+                    # Check for voice command end
+                    command = info.recorder.process_chunk(audio_data)
 
-                if info.start_listening.stopOnSilence and command:
-                    # Trigger publishing of transcription on silence
-                    async for result in self.finish_session(info, siteId, target_id):
-                        yield result
+                    if command:
+                        # Trigger publishing of transcription on silence
+                        async for result in self.finish_session(
+                            info, siteId=siteId, sessionId=target_id
+                        ):
+                            yield result
+                else:
+                    # Use session audio buffer
+                    assert info.audio_buffer is not None
+                    info.audio_buffer += audio_data
             except Exception as e:
                 _LOGGER.exception("handle_audio_frame")
                 yield AsrError(
@@ -376,10 +384,13 @@ class AsrHermesMqtt(HermesClient):
     ) -> typing.AsyncIterable[typing.Union[AsrTextCaptured, AudioCapturedType]]:
         """Publish transcription result for a session if not already published"""
 
-        assert info.recorder is not None
-
-        # Stop silence detection
-        audio_data = info.recorder.stop()
+        if info.recorder is not None:
+            # Stop silence detection and get trimmed audio
+            audio_data = info.recorder.stop()
+        else:
+            # Use complete audio buffer
+            assert info.audio_buffer is not None
+            audio_data = info.audio_buffer
 
         if not info.result_sent:
             # Avoid re-sending transcription
@@ -552,15 +563,16 @@ class AsrHermesMqtt(HermesClient):
             yield G2pError(
                 error=str(e),
                 context=f"model={self.model_dir}, graph={self.graph_dir}",
+                id=pronounce.id,
                 siteId=pronounce.siteId,
-                sessionId=pronounce.id,
+                sessionId=pronounce.sessionId,
             )
 
     # -------------------------------------------------------------------------
 
     async def on_message(
         self, message: Message, siteId=None, sessionId=None, topic=None
-    ):
+    ) -> GeneratorType:
         """Received message from MQTT broker."""
         if isinstance(message, AsrToggleOn):
             self.enabled = True
@@ -575,9 +587,10 @@ class AsrHermesMqtt(HermesClient):
                     _LOGGER.debug("Receiving audio")
                     self.first_audio = False
 
-                await self.publish_all(
-                    self.handle_audio_frame(message.wav_bytes, siteId=siteId)
-                )
+                async for frame_result in self.handle_audio_frame(
+                    message.wav_bytes, siteId=siteId
+                ):
+                    yield frame_result
         elif isinstance(message, AudioSessionFrame):
             if self.enabled:
                 # Check siteId
@@ -587,22 +600,25 @@ class AsrHermesMqtt(HermesClient):
                         self.first_audio = False
 
                     # Add to specific session only
-                    await self.publish_all(
-                        self.handle_audio_frame(
-                            message.wav_bytes, siteId=siteId, sessionId=sessionId
-                        )
-                    )
+                    async for session_frame_result in self.handle_audio_frame(
+                        message.wav_bytes, siteId=siteId, sessionId=sessionId
+                    ):
+                        yield session_frame_result
         elif isinstance(message, AsrStartListening):
             # hermes/asr/startListening
-            await self.publish_all(self.start_listening(message))
+            async for start_result in self.start_listening(message):
+                yield start_result
         elif isinstance(message, AsrStopListening):
             # hermes/asr/stopListening
-            await self.publish_all(self.stop_listening(message))
+            async for stop_result in self.stop_listening(message):
+                yield stop_result
         elif isinstance(message, AsrTrain):
             # rhasspy/asr/<siteId>/train
-            await self.publish_all(self.handle_train(message, siteId=siteId))
+            async for train_result in self.handle_train(message, siteId=siteId):
+                yield train_result
         elif isinstance(message, G2pPronounce):
             # rhasspy/g2p/pronounce
-            await self.publish_all(self.handle_pronounce(message))
+            async for pronounce_result in self.handle_pronounce(message):
+                yield pronounce_result
         else:
             _LOGGER.warning("Unexpected message: %s", message)

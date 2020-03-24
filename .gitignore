@@ -7,3 +7,5 @@ debian/rhasspy-asr-kaldi-hermes*
 .vscode/
 *.egg-info/
 download/
+.coverage
+coverage.xml
