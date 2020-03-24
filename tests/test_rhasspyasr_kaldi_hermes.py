@@ -1,4 +1,4 @@
-"""Unit tests for rhasspynlu_hermes"""
+"""Unit tests for rhasspyasr_kaldi_hermes"""
 import asyncio
 import json
 import logging
