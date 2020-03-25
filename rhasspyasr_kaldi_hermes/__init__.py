@@ -6,10 +6,10 @@ import os
 import threading
 import typing
 from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Queue
 
-import attr
 import networkx as nx
 import rhasspyasr_kaldi
 import rhasspynlu
@@ -40,28 +40,28 @@ AudioCapturedType = typing.Tuple[AsrAudioCaptured, TopicArgs]
 StopListeningType = typing.Union[AsrTextCaptured, AsrError, AudioCapturedType]
 
 
-@attr.s(auto_attribs=True, slots=True)
+@dataclass
 class TranscriberInfo:
     """Objects for a single transcriber"""
 
     transcriber: typing.Optional[Transcriber] = None
     recorder: typing.Optional[VoiceCommandRecorder] = None
-    frame_queue: "Queue[typing.Optional[bytes]]" = attr.Factory(Queue)
-    ready_event: threading.Event = attr.Factory(threading.Event)
+    frame_queue: "Queue[typing.Optional[bytes]]" = field(default_factory=Queue)
+    ready_event: threading.Event = field(default_factory=threading.Event)
     result: typing.Optional[Transcription] = None
-    result_event: threading.Event = attr.Factory(threading.Event)
+    result_event: threading.Event = field(default_factory=threading.Event)
     result_sent: bool = False
     start_listening: typing.Optional[AsrStartListening] = None
     thread: typing.Optional[threading.Thread] = None
     audio_buffer: typing.Optional[bytes] = None
 
 
-@attr.s(auto_attribs=True, slots=True)
+@dataclass
 class PronunciationDictionary:
     """Details of a phonetic dictionary."""
 
     path: Path
-    pronunciations: PronunciationsType = {}
+    pronunciations: PronunciationsType = field(default_factory=dict)
     mtime_ns: typing.Optional[int] = None
 
 
@@ -576,6 +576,7 @@ class AsrHermesMqtt(HermesClient):
         """Received message from MQTT broker."""
         if isinstance(message, AsrToggleOn):
             self.enabled = True
+            self.first_audio = True
             _LOGGER.debug("Enabled")
         elif isinstance(message, AsrToggleOff):
             self.enabled = False
