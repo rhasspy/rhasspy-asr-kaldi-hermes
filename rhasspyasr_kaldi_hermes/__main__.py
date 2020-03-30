@@ -142,29 +142,29 @@ def run_mqtt(args: argparse.Namespace):
             args.model_type, args.model_dir, args.graph_dir, port_num=port_num
         )
 
+    # Listen for messages
+    client = mqtt.Client()
+    hermes = AsrHermesMqtt(
+        client,
+        make_transcriber,
+        model_dir=args.model_dir,
+        graph_dir=args.graph_dir,
+        base_dictionaries=args.base_dictionary,
+        dictionary_path=args.dictionary,
+        dictionary_word_transform=get_word_transform(args.dictionary_casing),
+        language_model_path=args.language_model,
+        g2p_model=args.g2p_model,
+        g2p_word_transform=get_word_transform(args.g2p_casing),
+        unknown_words=args.unknown_words,
+        no_overwrite_train=args.no_overwrite_train,
+        siteIds=args.siteId,
+    )
+
+    _LOGGER.debug("Connecting to %s:%s", args.host, args.port)
+    hermes_cli.connect(client, args)
+    client.loop_start()
+
     try:
-        # Listen for messages
-        client = mqtt.Client()
-        hermes = AsrHermesMqtt(
-            client,
-            make_transcriber,
-            model_dir=args.model_dir,
-            graph_dir=args.graph_dir,
-            base_dictionaries=args.base_dictionary,
-            dictionary_path=args.dictionary,
-            dictionary_word_transform=get_word_transform(args.dictionary_casing),
-            language_model_path=args.language_model,
-            g2p_model=args.g2p_model,
-            g2p_word_transform=get_word_transform(args.g2p_casing),
-            unknown_words=args.unknown_words,
-            no_overwrite_train=args.no_overwrite_train,
-            siteIds=args.siteId,
-        )
-
-        _LOGGER.debug("Connecting to %s:%s", args.host, args.port)
-        hermes_cli.connect(client, args)
-        client.loop_start()
-
         # Run event loop
         asyncio.run(hermes.handle_messages_async())
     except KeyboardInterrupt:
