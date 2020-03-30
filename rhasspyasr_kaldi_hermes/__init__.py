@@ -1,5 +1,4 @@
 """Hermes MQTT server for Rhasspy ASR using Kaldi"""
-import asyncio
 import gzip
 import logging
 import os
@@ -94,13 +93,11 @@ class AsrHermesMqtt(HermesClient):
             typing.Callable[[], VoiceCommandRecorder]
         ] = None,
         session_result_timeout: float = 30,
-        loop=None,
     ):
         super().__init__(
             "rhasspyasr_kaldi_hermes",
             client,
             siteIds=siteIds,
-            loop=loop,
             sample_rate=sample_rate,
             sample_width=sample_width,
             channels=channels,
@@ -167,9 +164,6 @@ class AsrHermesMqtt(HermesClient):
         self.free_transcribers: typing.List[TranscriberInfo] = []
 
         self.first_audio: bool = True
-
-        # Event loop
-        self.loop = loop or asyncio.get_event_loop()
 
     # -------------------------------------------------------------------------
 

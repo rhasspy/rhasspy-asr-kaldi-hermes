@@ -143,8 +143,6 @@ def run_mqtt(args: argparse.Namespace):
         )
 
     try:
-        loop = asyncio.get_event_loop()
-
         # Listen for messages
         client = mqtt.Client()
         hermes = AsrHermesMqtt(
@@ -161,7 +159,6 @@ def run_mqtt(args: argparse.Namespace):
             unknown_words=args.unknown_words,
             no_overwrite_train=args.no_overwrite_train,
             siteIds=args.siteId,
-            loop=loop,
         )
 
         _LOGGER.debug("Connecting to %s:%s", args.host, args.port)
@@ -169,11 +166,12 @@ def run_mqtt(args: argparse.Namespace):
         client.loop_start()
 
         # Run event loop
-        hermes.loop.run_forever()
+        asyncio.run(hermes.handle_messages_async())
     except KeyboardInterrupt:
         pass
     finally:
         _LOGGER.debug("Shutting down")
+        client.loop_stop()
 
 
 # -----------------------------------------------------------------------------
