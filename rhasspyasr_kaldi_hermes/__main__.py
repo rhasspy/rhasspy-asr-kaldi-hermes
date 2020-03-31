@@ -113,7 +113,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--voice-sensitivity",
         type=int,
-        choices=[1, 2, 3],
+        choices=[0, 1, 2, 3],
         default=3,
         help="VAD sensitivity (0-3)",
     )
