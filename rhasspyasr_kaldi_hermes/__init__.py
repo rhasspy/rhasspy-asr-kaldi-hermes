@@ -92,6 +92,11 @@ class AsrHermesMqtt(HermesClient):
         recorder_factory: typing.Optional[
             typing.Callable[[], VoiceCommandRecorder]
         ] = None,
+        min_seconds: float = 1.0,
+        speech_seconds: float = 0.3,
+        silence_seconds: float = 0.5,
+        before_seconds: float = 0.5,
+        vad_mode: int = 3,
         session_result_timeout: float = 30,
     ):
         super().__init__(
@@ -155,7 +160,14 @@ class AsrHermesMqtt(HermesClient):
 
         # No timeout on silence detection
         def make_webrtcvad():
-            return WebRtcVadRecorder(max_seconds=None)
+            return WebRtcVadRecorder(
+                max_seconds=None,
+                vad_mode=vad_mode,
+                min_seconds=min_seconds,
+                speech_seconds=speech_seconds,
+                silence_seconds=silence_seconds,
+                before_seconds=before_seconds,
+            )
 
         self.recorder_factory = recorder_factory or make_webrtcvad
 

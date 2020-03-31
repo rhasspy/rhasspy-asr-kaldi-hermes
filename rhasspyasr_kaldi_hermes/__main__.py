@@ -85,6 +85,39 @@ def get_args() -> argparse.Namespace:
         help="Don't overwrite HCLG.fst during training",
     )
 
+    # Silence detection
+    parser.add_argument(
+        "--voice-min-seconds",
+        type=float,
+        default=1.0,
+        help="Minimum number of seconds for a voice command",
+    )
+    parser.add_argument(
+        "--voice-speech-seconds",
+        type=float,
+        default=0.3,
+        help="Consecutive seconds of speech before start",
+    )
+    parser.add_argument(
+        "--voice-silence-seconds",
+        type=float,
+        default=0.5,
+        help="Consecutive seconds of silence before stop",
+    )
+    parser.add_argument(
+        "--voice-before-seconds",
+        type=float,
+        default=0.5,
+        help="Seconds to record before start",
+    )
+    parser.add_argument(
+        "--voice-sensitivity",
+        type=int,
+        choices=[1, 2, 3],
+        default=3,
+        help="VAD sensitivity (0-3)",
+    )
+
     hermes_cli.add_hermes_args(parser)
 
     return parser.parse_args()
@@ -157,6 +190,11 @@ def run_mqtt(args: argparse.Namespace):
         g2p_word_transform=get_word_transform(args.g2p_casing),
         unknown_words=args.unknown_words,
         no_overwrite_train=args.no_overwrite_train,
+        min_seconds=args.voice_min_seconds,
+        speech_seconds=args.voice_speech_seconds,
+        silence_seconds=args.voice_silence_seconds,
+        before_seconds=args.voice_before_seconds,
+        vad_mode=args.voice_sensitivity,
         siteIds=args.siteId,
     )
 
