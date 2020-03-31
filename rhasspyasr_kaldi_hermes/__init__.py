@@ -250,7 +250,6 @@ class AsrHermesMqtt(HermesClient):
                         info.result = Transcription(
                             text="", likelihood=0, transcribe_seconds=0, wav_seconds=0
                         )
-
                         info.result_event.set()
 
                 # Run in separate thread
@@ -316,6 +315,12 @@ class AsrHermesMqtt(HermesClient):
                     info.result = None
                     info.result_event.clear()
                     info.result_sent = False
+                    info.result = None
+                    info.start_listening = None
+                    info.audio_buffer = None
+
+                    while info.frame_queue.qsize() > 0:
+                        info.frame_queue.get_nowait()
 
                     # Add to free pool
                     self.free_transcribers.append(info)

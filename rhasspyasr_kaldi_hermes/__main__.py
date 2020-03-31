@@ -113,9 +113,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--voice-sensitivity",
         type=int,
-        choices=[0, 1, 2, 3],
+        choices=[1, 2, 3],
         default=3,
-        help="VAD sensitivity (0-3)",
+        help="VAD sensitivity (1-3)",
     )
 
     hermes_cli.add_hermes_args(parser)
