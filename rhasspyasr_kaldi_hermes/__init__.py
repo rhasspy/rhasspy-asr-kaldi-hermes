@@ -161,6 +161,7 @@ class AsrHermesMqtt(HermesClient):
 
         # True if ASR system is enabled
         self.enabled = enabled
+        self.disabled_reasons: typing.Set[str] = set()
 
         # Seconds to wait for a result from transcriber thread
         self.session_result_timeout = session_result_timeout
@@ -619,11 +620,16 @@ class AsrHermesMqtt(HermesClient):
     ) -> GeneratorType:
         """Received message from MQTT broker."""
         if isinstance(message, AsrToggleOn):
-            self.enabled = True
-            self.first_audio = True
-            _LOGGER.debug("Enabled")
+            self.disabled_reasons.discard(message.reason)
+            if self.disabled_reasons:
+                _LOGGER.debug("Still disabled: %s", self.disabled_reasons)
+            else:
+                self.enabled = True
+                self.first_audio = True
+                _LOGGER.debug("Enabled")
         elif isinstance(message, AsrToggleOff):
             self.enabled = False
+            self.disabled_reasons.add(message.reason)
             _LOGGER.debug("Disabled")
         elif isinstance(message, AudioFrame):
             if self.enabled:
