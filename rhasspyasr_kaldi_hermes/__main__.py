@@ -2,7 +2,6 @@
 import argparse
 import asyncio
 import logging
-import socket
 import typing
 from pathlib import Path
 
@@ -10,7 +9,7 @@ import paho.mqtt.client as mqtt
 import rhasspyhermes.cli as hermes_cli
 from rhasspyasr_kaldi import KaldiCommandLineTranscriber
 
-from . import AsrHermesMqtt
+from . import AsrHermesMqtt, utils
 
 _LOGGER = logging.getLogger("rhasspyasr_kaldi_hermes")
 
@@ -83,6 +82,11 @@ def get_args() -> argparse.Namespace:
         "--no-overwrite-train",
         action="store_true",
         help="Don't overwrite HCLG.fst during training",
+    )
+    parser.add_argument(
+        "--reuse-transcribers",
+        action="store_true",
+        help="Don't automatically reload Kaldi model after each transcription",
     )
 
     # Silence detection
@@ -159,17 +163,9 @@ def run_mqtt(args: argparse.Namespace):
         str(args.graph_dir),
     )
 
-    def make_transcriber():
-        port_num: typing.Optional[int] = None
-        try:
-            # Find a free port (minor race condition)
-            # https://gist.github.com/gabrielfalcao/20e567e188f588b65ba2
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.bind(("", 0))
-            _, port_num = s.getsockname()
-            s.close()
-        except Exception:
-            _LOGGER.exception("make_transcriber")
+    def make_transcriber(port_num: typing.Optional[int] = None):
+        if port_num is None:
+            port_num = utils.get_free_port()
 
         return KaldiCommandLineTranscriber(
             args.model_type, args.model_dir, args.graph_dir, port_num=port_num
@@ -195,6 +191,7 @@ def run_mqtt(args: argparse.Namespace):
         silence_seconds=args.voice_silence_seconds,
         before_seconds=args.voice_before_seconds,
         vad_mode=args.voice_sensitivity,
+        reuse_transcribers=args.reuse_transcribers,
         siteIds=args.siteId,
     )
 

@@ -31,6 +31,8 @@ from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciat
 from rhasspynlu.g2p import PronunciationsType
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
+from . import utils
+
 _LOGGER = logging.getLogger("rhasspyasr_kaldi_hermes")
 
 # -----------------------------------------------------------------------------
@@ -53,6 +55,7 @@ class TranscriberInfo:
     start_listening: typing.Optional[AsrStartListening] = None
     thread: typing.Optional[threading.Thread] = None
     audio_buffer: typing.Optional[bytes] = None
+    reuse: bool = True
 
 
 @dataclass
@@ -97,7 +100,8 @@ class AsrHermesMqtt(HermesClient):
         silence_seconds: float = 0.5,
         before_seconds: float = 0.5,
         vad_mode: int = 3,
-        session_result_timeout: float = 30,
+        session_result_timeout: float = 20,
+        reuse_transcribers: bool = False,
     ):
         super().__init__(
             "rhasspyasr_kaldi_hermes",
@@ -124,6 +128,14 @@ class AsrHermesMqtt(HermesClient):
         # Kaldi model/graph dirs
         self.model_dir = model_dir
         self.graph_dir = graph_dir
+
+        # True if transcribers should be reused
+        self.reuse_transcribers = reuse_transcribers
+        self.kaldi_port: typing.Optional[int] = None
+
+        if not self.reuse_transcribers:
+            # Use a fixed port number
+            self.kaldi_port = utils.get_free_port()
 
         # Files to write during training
         self.dictionary_path = dictionary_path
@@ -200,13 +212,13 @@ class AsrHermesMqtt(HermesClient):
                 )
             else:
                 # Create new transcriber
-                info = TranscriberInfo()
+                info = TranscriberInfo(reuse=self.reuse_transcribers)
                 _LOGGER.debug("Creating new transcriber session %s", message.sessionId)
 
                 def transcribe_proc(
                     info, transcriber_factory, sample_rate, sample_width, channels
                 ):
-                    def audio_stream(frame_queue):
+                    def audio_stream(frame_queue) -> typing.Iterable[bytes]:
                         # Pull frames from the queue
                         frames = frame_queue.get()
                         while frames:
@@ -214,8 +226,11 @@ class AsrHermesMqtt(HermesClient):
                             frames = frame_queue.get()
 
                     try:
-                        # Create transcriber in this thread
-                        info.transcriber = transcriber_factory()
+                        info.transcriber = transcriber_factory(port_num=self.kaldi_port)
+
+                        assert (
+                            info.transcriber is not None
+                        ), "Failed to create transcriber"
 
                         while True:
                             # Wait for session to start
@@ -230,20 +245,35 @@ class AsrHermesMqtt(HermesClient):
                                 channels,
                             )
 
-                            assert result is not None, "Null transcription"
                             _LOGGER.debug("Transcription result: %s", result)
+
+                            assert (
+                                result is not None and result.text
+                            ), "Null transcription"
 
                             # Signal completion
                             info.result = result
                             info.result_event.set()
+
+                            if not self.reuse_transcribers:
+                                try:
+                                    info.transcriber.stop()
+                                except Exception:
+                                    _LOGGER.exception("Transcriber stop")
+
+                                break
                     except Exception:
                         _LOGGER.exception("session proc")
 
+                        # Mark as not reusable
+                        info.reuse = False
+
                         # Stop transcriber
-                        try:
-                            info.transcriber.stop()
-                        except Exception:
-                            _LOGGER.exception("Transcriber restart")
+                        if info.transcriber is not None:
+                            try:
+                                info.transcriber.stop()
+                            except Exception:
+                                _LOGGER.exception("Transcriber stop")
 
                         # Signal failure
                         info.transcriber = None
@@ -310,7 +340,7 @@ class AsrHermesMqtt(HermesClient):
                 ):
                     yield result
 
-                if info.transcriber is not None:
+                if info.reuse and (info.transcriber is not None):
                     # Reset state
                     info.result = None
                     info.result_event.clear()
@@ -411,7 +441,10 @@ class AsrHermesMqtt(HermesClient):
             info.frame_queue.put(None)
 
             # Wait for result
-            info.result_event.wait(timeout=self.session_result_timeout)
+            result_success = info.result_event.wait(timeout=self.session_result_timeout)
+            if not result_success:
+                # Mark transcription as non-reusable
+                info.reuse = False
 
             transcription = info.result
             if transcription:
