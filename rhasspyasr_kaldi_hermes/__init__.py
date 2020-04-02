@@ -21,6 +21,7 @@ from rhasspyhermes.asr import (
     AsrTextCaptured,
     AsrToggleOff,
     AsrToggleOn,
+    AsrToggleReason,
     AsrTrain,
     AsrTrainSuccess,
 )
@@ -620,7 +621,12 @@ class AsrHermesMqtt(HermesClient):
     ) -> GeneratorType:
         """Received message from MQTT broker."""
         if isinstance(message, AsrToggleOn):
-            self.disabled_reasons.discard(message.reason)
+            if message.reason == AsrToggleReason.UNKNOWN:
+                # Always enable on unknown
+                self.disabled_reasons.clear()
+            else:
+                self.disabled_reasons.discard(message.reason)
+
             if self.disabled_reasons:
                 _LOGGER.debug("Still disabled: %s", self.disabled_reasons)
             else:
