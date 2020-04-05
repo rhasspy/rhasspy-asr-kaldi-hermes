@@ -378,6 +378,11 @@ class AsrHermesMqtt(HermesClient):
         ]
     ]:
         """Process single frame of WAV audio"""
+
+        # Don't process audio if no sessions
+        if not self.sessions:
+            return
+
         audio_data = self.maybe_convert_wav(frame_wav_bytes)
 
         if sessionId is None:
