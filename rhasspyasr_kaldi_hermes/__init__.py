@@ -540,6 +540,10 @@ class AsrHermesMqtt(HermesClient):
                 )
             else:
                 _LOGGER.warning("Not overwriting HCLG.fst")
+                kaldi_dir = rhasspyasr_kaldi.get_kaldi_dir()
+                rhasspyasr_kaldi.train_prepare_online_decoding(
+                    self.model_dir, self.graph_dir, kaldi_dir
+                )
 
             yield (AsrTrainSuccess(id=train.id), {"siteId": siteId})
         except Exception as e:
