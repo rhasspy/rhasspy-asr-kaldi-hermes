@@ -91,6 +91,12 @@ def get_args() -> argparse.Namespace:
 
     # Silence detection
     parser.add_argument(
+        "--voice-skip-seconds",
+        type=float,
+        default=0.0,
+        help="Seconds of audio to skip before a voice command",
+    )
+    parser.add_argument(
         "--voice-min-seconds",
         type=float,
         default=1.0,
@@ -186,6 +192,7 @@ def run_mqtt(args: argparse.Namespace):
         g2p_word_transform=get_word_transform(args.g2p_casing),
         unknown_words=args.unknown_words,
         no_overwrite_train=args.no_overwrite_train,
+        skip_seconds=args.voice_skip_seconds,
         min_seconds=args.voice_min_seconds,
         speech_seconds=args.voice_speech_seconds,
         silence_seconds=args.voice_silence_seconds,

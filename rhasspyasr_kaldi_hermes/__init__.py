@@ -96,6 +96,7 @@ class AsrHermesMqtt(HermesClient):
         recorder_factory: typing.Optional[
             typing.Callable[[], VoiceCommandRecorder]
         ] = None,
+        skip_seconds: float = 0.0,
         min_seconds: float = 1.0,
         speech_seconds: float = 0.3,
         silence_seconds: float = 0.5,
@@ -177,6 +178,7 @@ class AsrHermesMqtt(HermesClient):
             return WebRtcVadRecorder(
                 max_seconds=None,
                 vad_mode=vad_mode,
+                skip_seconds=skip_seconds,
                 min_seconds=min_seconds,
                 speech_seconds=speech_seconds,
                 silence_seconds=silence_seconds,
