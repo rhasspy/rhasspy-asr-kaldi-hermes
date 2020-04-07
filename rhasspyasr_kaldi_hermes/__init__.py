@@ -202,10 +202,10 @@ class AsrHermesMqtt(HermesClient):
         try:
             if message.sessionId in self.sessions:
                 # Stop existing session
-                async for result in self.stop_listening(
-                    AsrStopListening(sessionId=message.sessionId)
+                async for stop_message in self.stop_listening(
+                    AsrStopListening(siteId=message.siteId, sessionId=message.sessionId)
                 ):
-                    yield result
+                    yield stop_message
 
             if self.free_transcribers:
                 # Re-use existing transcriber
@@ -647,7 +647,7 @@ class AsrHermesMqtt(HermesClient):
         elif isinstance(message, AsrToggleOff):
             self.enabled = False
             self.disabled_reasons.add(message.reason)
-            _LOGGER.debug("Disabled")
+            _LOGGER.debug("Disabled (%s)", message.reason)
         elif isinstance(message, AudioFrame):
             if self.enabled:
                 # Add to all active sessions
