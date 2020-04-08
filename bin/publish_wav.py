@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Publish a WAV file to Hermes ASR service."""
 import argparse
 import io
 import json
@@ -19,11 +20,12 @@ TOPIC_TEXT_CAPTURED = "hermes/asr/textCaptured"
 
 
 def main():
+    """Main entry point."""
     parser = argparse.ArgumentParser(prog="publish_wav")
     parser.add_argument(
-        "--siteId", default="default", help="Site ID to publish audio to"
+        "--site-id", default="default", help="Site ID to publish audio to"
     )
-    parser.add_argument("--sessionId", default="", help="Session ID for ASR")
+    parser.add_argument("--session-id", default="", help="Session ID for ASR")
     parser.add_argument("--chunk-size", default=2048, help="Bytes per WAV chunk")
     parser.add_argument(
         "--host", default="localhost", help="MQTT host (default: localhost)"
@@ -89,7 +91,9 @@ def main():
                 # Start listening
                 client.publish(
                     "hermes/asr/startListening",
-                    json.dumps({"siteId": args.siteId, "sessionId": args.sessionId}),
+                    json.dumps(
+                        {"site_id": args.site_id, "session_id": args.session_id}
+                    ),
                 )
 
                 try:
@@ -101,7 +105,8 @@ def main():
 
                         # Wrap chunk in WAV
                         with io.BytesIO() as out_io:
-                            with wave.open(out_io, "wb") as out_wav:
+                            out_wav: wave.Wave_write = wave.open(out_io, "wb")
+                            with out_wav:
                                 out_wav.setframerate(in_wav.getframerate())
                                 out_wav.setsampwidth(in_wav.getsampwidth())
                                 out_wav.setnchannels(in_wav.getnchannels())
@@ -109,17 +114,17 @@ def main():
 
                             # Publish audio frame
                             client.publish(
-                                f"hermes/audioServer/{args.siteId}/audioFrame",
+                                f"hermes/audioServer/{args.site_id}/audioFrame",
                                 out_io.getvalue(),
                             )
-                except:
+                except Exception:
                     _LOGGER.exception("send_wav")
                 finally:
                     # Stop listening
                     client.publish(
                         "hermes/asr/stopListening",
                         json.dumps(
-                            {"siteId": args.siteId, "sessionId": args.sessionId}
+                            {"site_id": args.site_id, "session_id": args.session_id}
                         ),
                     )
 
