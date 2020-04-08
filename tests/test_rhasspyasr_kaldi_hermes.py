@@ -1,26 +1,26 @@
 """Unit tests for rhasspyasr_kaldi_hermes"""
 import asyncio
-import json
 import logging
 import secrets
 import unittest
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 from rhasspyasr import Transcription
-from rhasspyasr_kaldi_hermes import AsrHermesMqtt
 from rhasspyhermes.asr import (
     AsrAudioCaptured,
+    AsrError,
     AsrStartListening,
     AsrStopListening,
     AsrTextCaptured,
-    AsrError,
     AsrTrain,
     AsrTrainSuccess,
 )
 from rhasspyhermes.audioserver import AudioFrame
-from rhasspyhermes.g2p import G2pPronounce, G2pPronunciation, G2pPhonemes, G2pError
+from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
+
+from rhasspyasr_kaldi_hermes import AsrHermesMqtt
 
 _LOGGER = logging.getLogger(__name__)
 _LOOP = asyncio.get_event_loop()
@@ -41,28 +41,24 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
     """Tests for rhasspyasr_kaldi_hermes"""
 
     def setUp(self):
-        self.siteId = str(uuid.uuid4())
-        self.sessionId = str(uuid.uuid4())
+        self.site_id = str(uuid.uuid4())
+        self.session_id = str(uuid.uuid4())
 
         self.client = MagicMock()
         self.transcriber = MagicMock()
 
         self.hermes = AsrHermesMqtt(
             self.client,
-            lambda: self.transcriber,
+            lambda *args, **kwargs: self.transcriber,
             model_dir=Path("."),
             graph_dir=Path("."),
             no_overwrite_train=True,
             g2p_model=Path("fake-g2p.fst"),
-            siteIds=[self.siteId],
-            loop=_LOOP,
+            site_ids=[self.site_id],
         )
 
         # No conversion
         self.hermes.convert_wav = lambda wav_bytes, **kwargs: wav_bytes
-
-    def tearDown(self):
-        self.hermes.stop()
 
     # -------------------------------------------------------------------------
 
@@ -84,10 +80,10 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
         # Start session
         start_listening = AsrStartListening(
-            siteId=self.siteId,
-            sessionId=self.sessionId,
-            stopOnSilence=False,
-            sendAudioCaptured=True,
+            site_id=self.site_id,
+            session_id=self.session_id,
+            stop_on_silence=False,
+            send_audio_captured=True,
         )
         result = None
         async for response in self.hermes.on_message(start_listening):
@@ -99,14 +95,16 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         # Send in "audio"
         fake_wav_bytes = self.hermes.to_wav_bytes(secrets.token_bytes(100))
         fake_frame = AudioFrame(wav_bytes=fake_wav_bytes)
-        async for response in self.hermes.on_message(fake_frame, siteId=self.siteId):
+        async for response in self.hermes.on_message(fake_frame, site_id=self.site_id):
             result = response
 
         # No response expected
         self.assertIsNone(result)
 
         # Stop session
-        stop_listening = AsrStopListening(siteId=self.siteId, sessionId=self.sessionId)
+        stop_listening = AsrStopListening(
+            site_id=self.site_id, session_id=self.session_id
+        )
 
         results = []
         async for response in self.hermes.on_message(stop_listening):
@@ -120,12 +118,12 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
                     text=fake_transcription.text,
                     likelihood=fake_transcription.likelihood,
                     seconds=fake_transcription.transcribe_seconds,
-                    siteId=self.siteId,
-                    sessionId=self.sessionId,
+                    site_id=self.site_id,
+                    session_id=self.session_id,
                 ),
                 (
                     AsrAudioCaptured(wav_bytes=fake_wav_bytes),
-                    {"siteId": self.siteId, "sessionId": self.sessionId},
+                    {"site_id": self.site_id, "session_id": self.session_id},
                 ),
             ],
         )
@@ -138,9 +136,6 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
     async def async_test_transcriber_error(self):
         """Check start/stop session with error in transcriber."""
-        fake_transcription = Transcription(
-            text="this is a test", likelihood=1, transcribe_seconds=0, wav_seconds=0
-        )
 
         def fake_transcribe(stream, *args):
             """Raise an exception."""
@@ -150,7 +145,7 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
         # Start session
         start_listening = AsrStartListening(
-            siteId=self.siteId, sessionId=self.sessionId, stopOnSilence=False
+            site_id=self.site_id, session_id=self.session_id, stop_on_silence=False
         )
         result = None
         async for response in self.hermes.on_message(start_listening):
@@ -162,14 +157,16 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         # Send in "audio"
         fake_wav_bytes = self.hermes.to_wav_bytes(secrets.token_bytes(100))
         fake_frame = AudioFrame(wav_bytes=fake_wav_bytes)
-        async for response in self.hermes.on_message(fake_frame, siteId=self.siteId):
+        async for response in self.hermes.on_message(fake_frame, site_id=self.site_id):
             result = response
 
         # No response expected
         self.assertIsNone(result)
 
         # Stop session
-        stop_listening = AsrStopListening(siteId=self.siteId, sessionId=self.sessionId)
+        stop_listening = AsrStopListening(
+            site_id=self.site_id, session_id=self.session_id
+        )
 
         results = []
         async for response in self.hermes.on_message(stop_listening):
@@ -183,8 +180,8 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
                     text="",
                     likelihood=0,
                     seconds=0,
-                    siteId=self.siteId,
-                    sessionId=self.sessionId,
+                    site_id=self.site_id,
+                    session_id=self.session_id,
                 )
             ],
         )
@@ -216,10 +213,10 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
         # Start session
         start_listening = AsrStartListening(
-            siteId=self.siteId,
-            sessionId=self.sessionId,
-            stopOnSilence=True,
-            sendAudioCaptured=False,
+            site_id=self.site_id,
+            session_id=self.session_id,
+            stop_on_silence=True,
+            send_audio_captured=False,
         )
         result = None
         async for response in self.hermes.on_message(start_listening):
@@ -235,7 +232,9 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         with open(wav_path, "rb") as wav_file:
             for wav_bytes in AudioFrame.iter_wav_chunked(wav_file, 4096):
                 frame = AudioFrame(wav_bytes=wav_bytes)
-                async for response in self.hermes.on_message(frame, siteId=self.siteId):
+                async for response in self.hermes.on_message(
+                    frame, site_id=self.site_id
+                ):
                     results.append(response)
 
         # Except transcription
@@ -246,8 +245,8 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
                     text=fake_transcription.text,
                     likelihood=fake_transcription.likelihood,
                     seconds=fake_transcription.transcribe_seconds,
-                    siteId=self.siteId,
-                    sessionId=self.sessionId,
+                    site_id=self.site_id,
+                    session_id=self.session_id,
                 )
             ],
         )
@@ -260,15 +259,15 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
     async def async_test_train_success(self):
         """Check successful training."""
-        train = AsrTrain(id=self.sessionId, graph_path="fake.pickle.gz")
+        train = AsrTrain(id=self.session_id, graph_path="fake.pickle.gz")
 
         # Send in training request
         result = None
-        async for response in self.hermes.on_message(train, siteId=self.siteId):
+        async for response in self.hermes.on_message(train, site_id=self.site_id):
             result = response
 
         self.assertEqual(
-            result, (AsrTrainSuccess(id=self.sessionId), {"siteId": self.siteId})
+            result, (AsrTrainSuccess(id=self.session_id), {"site_id": self.site_id})
         )
 
     def test_train_success(self):
@@ -282,16 +281,16 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
         # Force a training error
         self.hermes.model_dir = None
-        train = AsrTrain(id=self.sessionId, graph_path="fake.pickle.gz")
+        train = AsrTrain(id=self.session_id, graph_path="fake.pickle.gz")
 
         # Send in training request
         result = None
-        async for response in self.hermes.on_message(train, siteId=self.siteId):
+        async for response in self.hermes.on_message(train, site_id=self.site_id):
             result = response
 
         self.assertIsInstance(result, AsrError)
-        self.assertEqual(result.siteId, self.siteId)
-        self.assertEqual(result.sessionId, self.sessionId)
+        self.assertEqual(result.site_id, self.site_id)
+        self.assertEqual(result.session_id, self.session_id)
 
     def test_train_error(self):
         """Call async_test_train_error."""
@@ -316,9 +315,9 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
             pronounce = G2pPronounce(
                 id=g2p_id,
                 words=fake_words,
-                numGuesses=num_guesses,
-                siteId=self.siteId,
-                sessionId=self.sessionId,
+                num_guesses=num_guesses,
+                site_id=self.site_id,
+                session_id=self.session_id,
             )
 
             # Send in request
@@ -335,9 +334,9 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
             result,
             G2pPhonemes(
                 id=g2p_id,
-                wordPhonemes={word: expected_prons for word in fake_words},
-                siteId=self.siteId,
-                sessionId=self.sessionId,
+                word_phonemes={word: expected_prons for word in fake_words},
+                site_id=self.site_id,
+                session_id=self.session_id,
             ),
         )
 
@@ -349,7 +348,6 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
     async def async_test_g2p_error(self):
         """Check pronunciation error."""
-        num_guesses = 2
         fake_words = ["foo", "bar"]
 
         def fake_guess(words, *args, num_guesses=0, **kwargs):
@@ -361,8 +359,8 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
             pronounce = G2pPronounce(
                 id=g2p_id,
                 words=fake_words,
-                siteId=self.siteId,
-                sessionId=self.sessionId,
+                site_id=self.site_id,
+                session_id=self.session_id,
             )
 
             # Send in request
@@ -371,9 +369,8 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
                 result = response
 
         self.assertIsInstance(result, G2pError)
-        self.assertEqual(result.id, g2p_id)
-        self.assertEqual(result.siteId, self.siteId)
-        self.assertEqual(result.sessionId, self.sessionId)
+        self.assertEqual(result.site_id, self.site_id)
+        self.assertEqual(result.session_id, self.session_id)
 
     def test_train_g2p_error(self):
         """Call async_test_g2p_error."""

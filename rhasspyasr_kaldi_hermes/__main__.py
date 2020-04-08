@@ -199,7 +199,7 @@ def run_mqtt(args: argparse.Namespace):
         before_seconds=args.voice_before_seconds,
         vad_mode=args.voice_sensitivity,
         reuse_transcribers=args.reuse_transcribers,
-        siteIds=args.siteId,
+        site_ids=args.site_id,
     )
 
     _LOGGER.debug("Connecting to %s:%s", args.host, args.port)
