@@ -1,0 +1,9 @@
+*
+!Makefile
+!requirements.txt
+!VERSION
+!architecture.sh
+!rhasspy_wheels.txt
+!rhasspyasr_kaldi_hermes/*.py
+!scripts/
+!download/
