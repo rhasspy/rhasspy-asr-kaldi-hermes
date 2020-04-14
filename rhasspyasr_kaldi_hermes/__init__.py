@@ -635,7 +635,7 @@ class AsrHermesMqtt(HermesClient):
 
     # -------------------------------------------------------------------------
 
-    async def on_message(
+    async def on_message_blocking(
         self, message: Message, site_id=None, session_id=None, topic=None
     ) -> GeneratorType:
         """Received message from MQTT broker."""
