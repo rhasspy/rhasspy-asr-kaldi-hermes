@@ -21,16 +21,16 @@ setuptools.setup(
     url="https://github.com/rhasspy/rhasspy-asr-kaldi-hermes",
     packages=setuptools.find_packages(),
     install_requires=requirements,
+    entry_points={
+        "console_scripts": [
+            "rhasspy-asr-kaldi-hermes = rhasspyasr_kaldi_hermes.__main__:main"
+        ]
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
     ],
     long_description=long_description,
     long_description_content_type="text/markdown",
-    python_requires=">=3.6",
-    entry_points={
-        "console_scripts": [
-            "rhasspyasr_kaldi_hermes = rhasspyasr_kaldi_hermes.__main__:main"
-        ]
-    },
+    python_requires=">=3.7",
 )
