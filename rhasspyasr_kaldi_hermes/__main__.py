@@ -89,6 +89,22 @@ def get_args() -> argparse.Namespace:
         help="Don't automatically reload Kaldi model after each transcription",
     )
 
+    # Mixed language modeling
+    parser.add_argument(
+        "--base-language-model-fst",
+        help="Path to base language model FST (training, mixed)",
+    )
+    parser.add_argument(
+        "--base-language-model-weight",
+        type=float,
+        default=0,
+        help="Weight to give base langauge model (training, mixed)",
+    )
+    parser.add_argument(
+        "--mixed-language-model-fst",
+        help="Path to write mixed langauge model FST (training, mixed)",
+    )
+
     # Silence detection
     parser.add_argument(
         "--voice-skip-seconds",
@@ -162,6 +178,12 @@ def run_mqtt(args: argparse.Namespace):
     if args.unknown_words:
         args.unknown_words = Path(args.unknown_words)
 
+    if args.base_language_model_fst:
+        args.base_language_model_fst = Path(args.base_language_model_fst)
+
+    if args.mixed_language_model_fst:
+        args.mixed_language_model_fst = Path(args.mixed_language_model_fst)
+
     # Load transciber
     _LOGGER.debug(
         "Loading Kaldi model from %s (graph=%s)",
@@ -192,6 +214,9 @@ def run_mqtt(args: argparse.Namespace):
         g2p_word_transform=get_word_transform(args.g2p_casing),
         unknown_words=args.unknown_words,
         no_overwrite_train=args.no_overwrite_train,
+        base_language_model_fst=args.base_language_model_fst,
+        base_language_model_weight=args.base_language_model_weight,
+        mixed_language_model_fst=args.mixed_language_model_fst,
         skip_seconds=args.voice_skip_seconds,
         min_seconds=args.voice_min_seconds,
         speech_seconds=args.voice_speech_seconds,

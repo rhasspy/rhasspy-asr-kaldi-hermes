@@ -88,6 +88,9 @@ class AsrHermesMqtt(HermesClient):
         language_model_path: typing.Optional[Path] = None,
         unknown_words: typing.Optional[Path] = None,
         no_overwrite_train: bool = False,
+        base_language_model_fst: typing.Optional[Path] = None,
+        base_language_model_weight: float = 0,
+        mixed_language_model_fst: typing.Optional[Path] = None,
         site_ids: typing.Optional[typing.List[str]] = None,
         enabled: bool = True,
         sample_rate: int = 16000,
@@ -154,6 +157,11 @@ class AsrHermesMqtt(HermesClient):
         # function.
         self.g2p_model = g2p_model
         self.g2p_word_transform = g2p_word_transform
+
+        # Mixed language model
+        self.base_language_model_fst = base_language_model_fst
+        self.base_language_model_weight = base_language_model_weight
+        self.mixed_language_model_fst = mixed_language_model_fst
 
         # If True, HCLG.fst won't be overwritten during training
         self.no_overwrite_train = no_overwrite_train
@@ -545,6 +553,9 @@ class AsrHermesMqtt(HermesClient):
                     g2p_model=self.g2p_model,
                     g2p_word_transform=self.g2p_word_transform,
                     missing_words_path=self.unknown_words,
+                    base_language_model_fst=self.base_language_model_fst,
+                    base_language_model_weight=self.base_language_model_weight,
+                    mixed_language_model_fst=self.mixed_language_model_fst,
                 )
             else:
                 _LOGGER.warning("Not overwriting HCLG.fst")
