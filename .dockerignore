@@ -17,5 +17,6 @@
 !README.md
 !LICENSE
 !scripts/
+!download/
 
 !rhasspyasr_kaldi_hermes/*.py
