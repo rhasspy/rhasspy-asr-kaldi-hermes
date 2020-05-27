@@ -1,9 +1,21 @@
 *
-!Makefile
+
+# Autoconf
+!aclocal.m4
+!configure
+!config.sub
+!config.guess
+!install-sh
+!missing
+!m4/
+!Makefile.in
+!rhasspy-asr-kaldi-hermes.in
+
 !requirements.txt
+!setup.py
 !VERSION
-!architecture.sh
-!rhasspy_wheels.txt
-!rhasspyasr_kaldi_hermes/*.py
+!README.md
+!LICENSE
 !scripts/
-!download/
+
+!rhasspyasr_kaldi_hermes/*.py

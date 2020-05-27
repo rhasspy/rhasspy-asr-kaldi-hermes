@@ -9,3 +9,8 @@ debian/rhasspy-asr-kaldi-hermes*
 download/
 .coverage
 coverage.xml
+
+/autom4te.cache/
+/Makefile
+/rhasspy-asr-kaldi-hermes
+/config.status

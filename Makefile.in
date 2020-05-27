@@ -1,0 +1,237 @@
+# Makefile.in
+#
+# Copyright © 2012, 2013 Brandon Invergo <brandon@invergo.net>
+#
+# Copying and distribution of this file, with or without modification,
+# are permitted in any medium without royalty provided the copyright
+# notice and this notice are preserved.  This file is offered as-is,
+# without any warranty.
+
+# List whatever files you want to include in your source distribution here.
+# You can include whole directories but note that *everything* under that
+# directory will be included
+DISTFILES = PKG-INFO Makefile.in configure install-sh rhasspy-asr-kaldi-hermes
+
+DESTDIR =
+PACKAGE_BUGREPORT = @PACKAGE_BUGREPORT@
+PACKAGE_NAME = @PACKAGE_NAME@
+PACKAGE_STRING = @PACKAGE_STRING@
+PACKAGE_TARNAME = @PACKAGE_TARNAME@
+PACKAGE_DISTNAME = ${PACKAGE_NAME}-${PACKAGE_VERSION}
+PACKAGE_URL = @PACKAGE_URL@
+PACKAGE_VERSION = @PACKAGE_VERSION@
+PATH_SEPARATOR = @PATH_SEPARATOR@
+PYTHON = @PYTHON@
+VIRTUALENV = @VIRTUALENV@
+SHELL = @SHELL@
+MKDIR_P = @MKDIR_P@
+INSTALL = @INSTALL@
+INSTALL_PROGRAM = @INSTALL_PROGRAM@
+INSTALL_DATA = @INSTALL_DATA@
+INSTALL_SCRIPT = @INSTALL_SCRIPT@
+exec_prefix = @exec_prefix@
+includedir = @includedir@
+infodir = @infodir@
+prefix = @prefix@
+srcdir = @abs_srcdir@
+datadir = @datadir@
+datarootdir = @datarootdir@
+pkgdatadir = $(datadir)/@PACKAGE_NAME@
+pkgincludedir = $(includedir)/@PACKAGE_NAME@
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+
+BUILD_DIR ?= $(srcdir)/build
+DOWNLOAD_DIR ?= $(srcdir)/download
+DO_DOWNLOAD ?= curl -sSfL -o
+
+DOCKER_ARCH = @DOCKER_ARCH@
+
+ENABLE_OPENGRM = @ENABLE_OPENGRM@
+OPENGRM_ARCH = @OPENGRM_ARCH@
+OPENGRM_FROM = @OPENGRM_FROM@
+OPENGRM_PRE_FILE = $(DOWNLOAD_DIR)/opengrm-1.3.4_$(DOCKER_ARCH).tar.gz
+OPENGRM_SRC_FILE = $(DOWNLOAD_DIR)/opengrm-ngram-1.3.4.tar.gz
+OPENFST_SRC_FILE = $(DOWNLOAD_DIR)/openfst-1.6.9.tar.gz
+
+ENABLE_PHONETISAURUS = @ENABLE_PHONETISAURUS@
+PHONETISAURUS_FROM = @PHONETISAURUS_FROM@
+PHONETISAURUS_PRE_FILE = $(DOWNLOAD_DIR)/phonetisaurus-2019_$(DOCKER_ARCH).tar.gz
+PHONETISAURUS_SRC_FILE = $(DOWNLOAD_DIR)/phonetisaurus-2019.tar.gz
+
+ENABLE_KALDI = @ENABLE_KALDI@
+KALDI_FROM = @KALDI_FROM@
+KALDI_PRE_FILE = $(DOWNLOAD_DIR)/kaldi-2020_$(DOCKER_ARCH).tar.gz
+KALDI_SRC_FILE = $(DOWNLOAD_DIR)/kaldi-2020.tar.gz
+
+# -----------------------------------------------------------------------------
+
+VENV_DIR = $(DESTDIR)$(prefix)
+VENV_PYTHON = $(VENV_DIR)/bin/python
+VIRTUALENV_FLAGS ?= --clear
+
+ifeq ($(VIRTUALENV),yes)
+  INSTALL_PYTHON=$(VENV_PYTHON)
+else # VIRTUALENV == yes
+  INSTALL_PYTHON=$(PYTHON)
+endif # VIRTUALENV == yes
+
+.PHONY: all install uninstall distclean clean dist check installdirs
+
+all: download-init build-init opengrm phonetisaurus kaldi
+
+.PHONY: install-init install-dependencies install-service
+install: installdirs \
+         install-init \
+         install-dependencies \
+         install-service
+
+install-init:
+ifeq ($(VIRTUALENV),yes)
+	"$(PYTHON)" -m venv $(VIRTUALENV_FLAGS) "$(VENV_DIR)" || "$(PYTHON)" -m venv "$(VENV_DIR)"
+	"$(VENV_PYTHON)" -m pip install $(PIP_INSTALL_ARGS) --upgrade pip
+	"$(VENV_PYTHON)" -m pip install $(PIP_INSTALL_ARGS) wheel || true
+	"$(VENV_PYTHON)" -m pip install $(PIP_INSTALL_ARGS) setuptools
+endif # VIRTUALENV == yes
+
+.PHONY: install-opengrm install-phonetisaurus install-kaldi
+install-dependencies: install-opengrm \
+                      install-phonetisaurus \
+                      install-kaldi
+
+install-service:
+	"$(INSTALL_PYTHON)" -m pip install $(PIP_INSTALL_ARGS) "$(srcdir)"
+	chmod +x "$(srcdir)/rhasspy-asr-kaldi-hermes"
+
+# -----------------------------------------------------------------------------
+
+.PHONY: download-init
+download-init:
+	$(MKDIR_P) "$(DOWNLOAD_DIR)"
+
+.PHONY: build-init
+build-init:
+	$(MKDIR_P) "$(BUILD_DIR)"
+
+# -----------------------------------------------------------------------------
+# Opengrm: languge modeling toolkit
+# http://www.opengrm.org/twiki/bin/view/GRM/NGramLibrary
+# -----------------------------------------------------------------------------
+
+.PHONY: opengrm
+ifeq ($(ENABLE_OPENGRM),yes)
+opengrm: $(OPENGRM_PRE_FILE)
+
+install-opengrm: $(OPENGRM_PRE_FILE)
+	"$(srcdir)/scripts/install/install-opengrm.sh" "$(OPENGRM_PRE_FILE)" "$(DESTDIR)$(prefix)"
+
+  ifeq ($(OPENGRM_FROM),prebuilt)
+$(OPENGRM_PRE_FILE):
+	$(DO_DOWNLOAD) "$(OPENGRM_PRE_FILE)" "https://github.com/synesthesiam/prebuilt-apps/releases/download/v1.0/opengrm-1.3.4_$(DOCKER_ARCH).tar.gz"
+  else # OPENGRM_FROM
+$(OPENGRM_PRE_FILE): $(OPENFST_SRC_FILE) $(OPENGRM_SRC_FILE)
+	"$(srcdir)/scripts/build/build-opengrm.sh" "$(OPENGRM_SRC_FILE)" "$(OPENFST_SRC_FILE)" "$(BUILD_DIR)" "$(OPENGRM_PRE_FILE)"
+  endif # OPENGRM_FROM
+else # ENABLE_OPENGRM
+opengrm:
+
+install-opengrm:
+endif # ENABLE_OPENGRM
+
+$(OPENFST_SRC_FILE):
+	$(DO_DOWNLOAD) "$(OPENFST_SRC_FILE)" 'http://www.openfst.org/twiki/pub/FST/FstDownload/openfst-1.6.9.tar.gz'
+
+$(OPENGRM_SRC_FILE):
+	$(DO_DOWNLOAD) "$(OPENGRM_SRC_FILE)" 'http://www.opengrm.org/twiki/pub/GRM/NGramDownload/opengrm-ngram-1.3.4.tar.gz'
+
+# -----------------------------------------------------------------------------
+# Phonetisaurus: grapheme to phoneme
+# https://github.com/AdolfVonKleist/Phonetisaurus
+# -----------------------------------------------------------------------------
+
+.PHONY: phonetisaurus
+ifeq ($(ENABLE_PHONETISAURUS),yes)
+phonetisaurus: $(PHONETISAURUS_PRE_FILE)
+
+install-phonetisaurus: $(PHONETISAURUS_PRE_FILE)
+	"$(srcdir)/scripts/install/install-phonetisaurus.sh" "$(PHONETISAURUS_PRE_FILE)" "$(DESTDIR)$(prefix)"
+
+  ifeq ($(PHONETISAURUS_FROM),prebuilt)
+$(PHONETISAURUS_PRE_FILE):
+	$(DO_DOWNLOAD) "$(PHONETISAURUS_PRE_FILE)" "https://github.com/synesthesiam/prebuilt-apps/releases/download/v1.0/phonetisaurus-2019_$(DOCKER_ARCH).tar.gz"
+  else # PHONETISAURUS_FROM
+$(PHONETISAURUS_PRE_FILE): $(OPENFST_SRC_FILE) $(PHONETISAURUS_SRC_FILE)
+	"$(srcdir)/scripts/build/build-phonetisaurus.sh" "$(PHONETISAURUS_SRC_FILE)" "$(OPENFST_SRC_FILE)" "$(BUILD_DIR)" "$(PHONETISAURUS_PRE_FILE)"
+  endif # PHONETISAURUS_FROM
+else # ENABLE_PHONETISAURUS
+phonetisaurus:
+
+install-phonetisaurus:
+endif # ENABLE_PHONETISAURUS
+
+$(PHONETISAURUS_SRC_FILE):
+	$(DO_DOWNLOAD) "$(PHONETISAURUS_SRC_FILE)" 'https://github.com/synesthesiam/prebuilt-apps/raw/master/download/phonetisaurus-2019.tar.gz'
+
+# -----------------------------------------------------------------------------
+# Kaldi: speech to text
+# https://kaldi-asr.org
+# -----------------------------------------------------------------------------
+
+.PHONY: kaldi
+ifeq ($(ENABLE_KALDI),yes)
+kaldi: $(KALDI_PRE_FILE)
+
+install-kaldi: $(KALDI_PRE_FILE)
+	"$(srcdir)/scripts/install/install-kaldi.sh" "$(KALDI_PRE_FILE)" "$(DESTDIR)$(prefix)"
+
+  ifeq ($(KALDI_FROM),prebuilt)
+$(KALDI_PRE_FILE):
+	$(DO_DOWNLOAD) "$(KALDI_PRE_FILE)" "https://github.com/synesthesiam/prebuilt-apps/releases/download/v1.0/kaldi-2020_$(DOCKER_ARCH).tar.gz"
+  else # KALDI_FROM
+$(KALDI_PRE_FILE): $(KALDI_SRC_FILE)
+	"$(srcdir)/scripts/build/build-kaldi.sh" "$(KALDI_SRC_FILE)" "$(BUILD_DIR)" "$(KALDI_PRE_FILE)"
+  endif # KALDI_FROM
+else # ENABLE_KALDI
+kaldi:
+
+install-kaldi:
+endif # ENABLE_KALDI
+
+$(KALDI_SRC_FILE):
+	$(DO_DOWNLOAD) "$(KALDI_SRC_FILE)" 'https://github.com/synesthesiam/docker-kaldi/raw/master/download/kaldi-2020.tar.gz'
+
+# -----------------------------------------------------------------------------
+
+uninstall:
+ifeq ($(VIRTUALENV),yes)
+	rm -rvf "$(VENV_DIR)"
+endif
+
+
+# Delete downloaded binaries and build artifacts
+clean:
+	"$(PYTHON)" setup.py clean
+	rm -rvf "$(BUILD_DIR)"
+
+
+# Clean up the output of configure
+distclean:
+	rm -v "$(srcdir)/config.log"
+	rm -v "$(srcdir)/config.status"
+	rm -rvf "$(srcdir)/autom4te.cache"
+	rm -v "$(srcdir)/Makefile"
+
+# You can either use the setup.py sdist command or you can roll your own here
+dist:
+	"$(PYTHON)" setup.py sdist
+
+# Use the setup.py check command
+check:
+	"$(PYTHON)" setup.py check
+
+# setup.py might complain if a directory doesn't exist so just in case, make the directory
+# here
+installdirs:
+	$(MKDIR_P) "$(DESTDIR)$(prefix)"
