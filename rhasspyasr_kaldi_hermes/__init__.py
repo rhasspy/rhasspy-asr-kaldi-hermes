@@ -466,6 +466,8 @@ class AsrHermesMqtt(HermesClient):
                 info.reuse = False
 
             transcription = info.result
+            assert info.start_listening is not None
+
             if transcription:
                 # Successful transcription
                 yield (
@@ -475,6 +477,7 @@ class AsrHermesMqtt(HermesClient):
                         seconds=transcription.transcribe_seconds,
                         site_id=site_id,
                         session_id=session_id,
+                        lang=info.start_listening.lang,
                     )
                 )
             else:
@@ -485,9 +488,9 @@ class AsrHermesMqtt(HermesClient):
                     seconds=0,
                     site_id=site_id,
                     session_id=session_id,
+                    lang=info.start_listening.lang,
                 )
 
-            assert info.start_listening is not None
             if info.start_listening.send_audio_captured:
                 wav_bytes = self.to_wav_bytes(audio_data)
 
