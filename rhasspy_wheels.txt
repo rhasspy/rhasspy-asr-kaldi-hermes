@@ -1,1 +1,0 @@
-rhasspy-asr-kaldi==0.1.4

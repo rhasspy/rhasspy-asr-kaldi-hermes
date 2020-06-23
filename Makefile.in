@@ -43,6 +43,8 @@ pkgincludedir = $(includedir)/@PACKAGE_NAME@
 # Dependencies
 # -----------------------------------------------------------------------------
 
+IN_PLACE = @IN_PLACE@
+
 BUILD_DIR ?= $(srcdir)/build
 DOWNLOAD_DIR ?= $(srcdir)/download
 DO_DOWNLOAD ?= curl -sSfL -o
@@ -78,7 +80,7 @@ else # VIRTUALENV == yes
   INSTALL_PYTHON=$(PYTHON)
 endif # VIRTUALENV == yes
 
-.PHONY: all install uninstall distclean clean dist check installdirs
+.PHONY: all install uninstall distclean clean dist installdirs
 
 all: download-init build-init opengrm phonetisaurus kaldi
 
@@ -102,7 +104,12 @@ install-dependencies: install-opengrm \
                       install-kaldi
 
 install-service:
+ifeq ($(IN_PLACE),yes)
+	"$(INSTALL_PYTHON)" -m pip install $(PIP_INSTALL_ARGS) -r "$(srcdir)/requirements.txt"
+	"$(INSTALL_PYTHON)" -m pip install $(PIP_INSTALL_ARGS) -r "$(srcdir)/requirements_dev.txt" || true
+else # IN_PLACE == yes
 	"$(INSTALL_PYTHON)" -m pip install $(PIP_INSTALL_ARGS) "$(srcdir)"
+endif # IN_PLACE == yes
 	chmod +x "$(srcdir)/rhasspy-asr-kaldi-hermes"
 
 # -----------------------------------------------------------------------------
@@ -227,11 +234,20 @@ distclean:
 dist:
 	"$(PYTHON)" setup.py sdist
 
-# Use the setup.py check command
-check:
-	"$(PYTHON)" setup.py check
-
 # setup.py might complain if a directory doesn't exist so just in case, make the directory
 # here
 installdirs:
 	$(MKDIR_P) "$(DESTDIR)$(prefix)"
+
+# -----------------------------------------------------------------------------
+
+.PHONY: check reformat test
+
+check:
+	scripts/check-code.sh
+
+reformat:
+	scripts/format-code.sh
+
+test:
+	scripts/run-tests.sh
