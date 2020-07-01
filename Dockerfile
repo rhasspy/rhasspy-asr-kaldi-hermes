@@ -1,3 +1,30 @@
+# -----------------------------------------------------------------------------
+# Dockerfile for Rhasspy Kaldi Service
+# (https://github.com/rhasspy/rhasspy-asr-kaldi-hermes)
+#
+# Requires Docker buildx: https://docs.docker.com/buildx/working-with-buildx/
+# See scripts/build-docker.sh
+#
+# Builds a multi-arch image for amd64/armv6/armv7/arm64.
+# The virtual environment from the build stage is copied over to the run stage.
+# The Rhasspy source code is then copied into the run stage and executed within
+# that virtual environment.
+#
+# Build stages are named build-$TARGETARCH$TARGETVARIANT, so build-amd64,
+# build-armv6, etc. Run stages are named similarly.
+#
+# armv6 images (Raspberry Pi 0/1) are derived from balena base images:
+# https://www.balena.io/docs/reference/base-images/base-images/#balena-base-images
+#
+# The IFDEF statements are handled by docker/preprocess.sh. These are just
+# comments that are uncommented if the environment variable after the IFDEF is
+# not empty.
+#
+# The build-docker.sh script will optionally add apt/pypi proxies running locally:
+# * apt - https://docs.docker.com/engine/examples/apt-cacher-ng/ 
+# * pypi - https://github.com/jayfk/docker-pypi-cache
+# -----------------------------------------------------------------------------
+
 FROM ubuntu:eoan as build-ubuntu
 
 ENV LANG C.UTF-8
