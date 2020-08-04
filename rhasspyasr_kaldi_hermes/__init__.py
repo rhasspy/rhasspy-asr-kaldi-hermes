@@ -13,6 +13,7 @@ import networkx as nx
 import rhasspyasr_kaldi
 import rhasspynlu
 from rhasspyasr import Transcriber, Transcription
+from rhasspyasr_kaldi.train import LanguageModelType
 from rhasspyhermes.asr import (
     AsrAudioCaptured,
     AsrError,
@@ -86,6 +87,7 @@ class AsrHermesMqtt(HermesClient):
         g2p_word_transform: typing.Optional[typing.Callable[[str], str]] = None,
         dictionary_path: typing.Optional[Path] = None,
         language_model_path: typing.Optional[Path] = None,
+        language_model_type: LanguageModelType = LanguageModelType.ARPA,
         unknown_words: typing.Optional[Path] = None,
         no_overwrite_train: bool = False,
         base_language_model_fst: typing.Optional[Path] = None,
@@ -145,6 +147,7 @@ class AsrHermesMqtt(HermesClient):
         # Files to write during training
         self.dictionary_path = dictionary_path
         self.language_model_path = language_model_path
+        self.language_model_type = language_model_type
 
         # Pronunciation dictionaries and word transform function
         base_dictionaries = base_dictionaries or []
@@ -552,6 +555,7 @@ class AsrHermesMqtt(HermesClient):
                     self.graph_dir,
                     dictionary=self.dictionary_path,
                     language_model=self.language_model_path,
+                    language_model_type=self.language_model_type,
                     dictionary_word_transform=self.dictionary_word_transform,
                     g2p_model=self.g2p_model,
                     g2p_word_transform=self.g2p_word_transform,

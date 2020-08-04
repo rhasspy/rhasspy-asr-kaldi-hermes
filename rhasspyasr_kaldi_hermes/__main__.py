@@ -8,6 +8,7 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 import rhasspyhermes.cli as hermes_cli
 from rhasspyasr_kaldi import KaldiCommandLineTranscriber
+from rhasspyasr_kaldi.train import LanguageModelType
 
 from . import AsrHermesMqtt, utils
 
@@ -59,6 +60,12 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--language-model", help="Path to write ARPA language model file (training)"
+    )
+    parser.add_argument(
+        "--language-model-type",
+        default=LanguageModelType.ARPA,
+        choices=[v.value for v in LanguageModelType],
+        help="Type of language model to generate (default: arpa)",
     )
     parser.add_argument(
         "--base-dictionary",
@@ -175,6 +182,8 @@ def run_mqtt(args: argparse.Namespace):
     if args.language_model:
         args.language_model = Path(args.language_model)
 
+    args.language_model_type = LanguageModelType(args.language_model_type)
+
     if args.unknown_words:
         args.unknown_words = Path(args.unknown_words)
 
@@ -210,6 +219,7 @@ def run_mqtt(args: argparse.Namespace):
         dictionary_path=args.dictionary,
         dictionary_word_transform=get_word_transform(args.dictionary_casing),
         language_model_path=args.language_model,
+        language_model_type=args.language_model_type,
         g2p_model=args.g2p_model,
         g2p_word_transform=get_word_transform(args.g2p_casing),
         unknown_words=args.unknown_words,

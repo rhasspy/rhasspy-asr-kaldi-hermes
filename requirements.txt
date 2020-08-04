@@ -1,5 +1,5 @@
 networkx==2.4
 paho-mqtt==1.5.0
-rhasspy-asr-kaldi~=0.3.0
+rhasspy-asr-kaldi~=0.4.0
 rhasspy-hermes~=0.3.0
 rhasspy-silence~=0.3.0
