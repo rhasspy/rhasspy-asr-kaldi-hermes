@@ -65,7 +65,7 @@ def main():
                 text_captured = json.loads(msg.payload.strip())
 
                 # Print to console
-                json.dump(text_captured, sys.stdout)
+                json.dump(text_captured, sys.stdout, ensure_ascii=False)
                 print("", file=sys.stdout)
                 sys.stdout.flush()
 
