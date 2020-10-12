@@ -10,9 +10,11 @@ from pathlib import Path
 from queue import Queue
 
 import networkx as nx
-import rhasspyasr_kaldi
 import rhasspynlu
 from rhasspyasr import Transcriber, Transcription
+from rhasspynlu.g2p import PronunciationsType
+
+import rhasspyasr_kaldi
 from rhasspyasr_kaldi.train import LanguageModelType
 from rhasspyhermes.asr import (
     AsrAudioCaptured,
@@ -30,7 +32,6 @@ from rhasspyhermes.audioserver import AudioFrame, AudioSessionFrame
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
-from rhasspynlu.g2p import PronunciationsType
 from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
 from . import utils
@@ -109,6 +110,7 @@ class AsrHermesMqtt(HermesClient):
         vad_mode: int = 3,
         session_result_timeout: float = 20,
         reuse_transcribers: bool = False,
+        spn_phone: str = "SPN",
     ):
         super().__init__(
             "rhasspyasr_kaldi_hermes",
@@ -171,6 +173,9 @@ class AsrHermesMqtt(HermesClient):
 
         # Path to write missing words and guessed pronunciations
         self.unknown_words = unknown_words
+
+        # Phone used for spoken noise (<unk>)
+        self.spn_phone = spn_phone
 
         # True if ASR system is enabled
         self.enabled = enabled
@@ -563,6 +568,7 @@ class AsrHermesMqtt(HermesClient):
                     base_language_model_fst=self.base_language_model_fst,
                     base_language_model_weight=self.base_language_model_weight,
                     mixed_language_model_fst=self.mixed_language_model_fst,
+                    spn_phone=self.spn_phone,
                 )
             else:
                 _LOGGER.warning("Not overwriting HCLG.fst")

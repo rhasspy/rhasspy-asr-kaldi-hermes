@@ -6,6 +6,7 @@ import typing
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
+
 import rhasspyhermes.cli as hermes_cli
 from rhasspyasr_kaldi import KaldiCommandLineTranscriber
 from rhasspyasr_kaldi.train import LanguageModelType
@@ -84,6 +85,11 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--unknown-words", help="Path to write missing words from dictionary (training)"
+    )
+    parser.add_argument(
+        "--spn-phone",
+        default="SPN",
+        help="Spoken noise phone name used for <unk> (default: SPN)",
     )
     parser.add_argument(
         "--no-overwrite-train",
@@ -234,6 +240,7 @@ def run_mqtt(args: argparse.Namespace):
         before_seconds=args.voice_before_seconds,
         vad_mode=args.voice_sensitivity,
         reuse_transcribers=args.reuse_transcribers,
+        spn_phone=args.spn_phone,
         site_ids=args.site_id,
     )
 
