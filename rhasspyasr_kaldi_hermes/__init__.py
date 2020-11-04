@@ -11,14 +11,16 @@ from queue import Queue
 
 import networkx as nx
 import rhasspynlu
-from rhasspyasr import Transcriber, Transcription
 from rhasspynlu.g2p import PronunciationsType
+from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
 import rhasspyasr_kaldi
+from rhasspyasr import Transcriber, Transcription
 from rhasspyasr_kaldi.train import LanguageModelType
 from rhasspyhermes.asr import (
     AsrAudioCaptured,
     AsrError,
+    AsrRecordingFinished,
     AsrStartListening,
     AsrStopListening,
     AsrTextCaptured,
@@ -32,7 +34,6 @@ from rhasspyhermes.audioserver import AudioFrame, AudioSessionFrame
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
-from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
 from . import utils
 
@@ -41,7 +42,9 @@ _LOGGER = logging.getLogger("rhasspyasr_kaldi_hermes")
 # -----------------------------------------------------------------------------
 
 AudioCapturedType = typing.Tuple[AsrAudioCaptured, TopicArgs]
-StopListeningType = typing.Union[AsrTextCaptured, AsrError, AudioCapturedType]
+StopListeningType = typing.Union[
+    AsrRecordingFinished, AsrTextCaptured, AsrError, AudioCapturedType
+]
 
 
 @dataclass
@@ -394,7 +397,10 @@ class AsrHermesMqtt(HermesClient):
         session_id: typing.Optional[str] = None,
     ) -> typing.AsyncIterable[
         typing.Union[
-            AsrTextCaptured, AsrError, typing.Tuple[AsrAudioCaptured, TopicArgs]
+            AsrRecordingFinished,
+            AsrTextCaptured,
+            AsrError,
+            typing.Tuple[AsrAudioCaptured, TopicArgs],
         ]
     ]:
         """Process single frame of WAV audio"""
@@ -449,7 +455,9 @@ class AsrHermesMqtt(HermesClient):
 
     async def finish_session(
         self, info: TranscriberInfo, site_id: str, session_id: typing.Optional[str]
-    ) -> typing.AsyncIterable[typing.Union[AsrTextCaptured, AudioCapturedType]]:
+    ) -> typing.AsyncIterable[
+        typing.Union[AsrRecordingFinished, AsrTextCaptured, AudioCapturedType]
+    ]:
         """Publish transcription result for a session if not already published"""
 
         if info.recorder is not None:
@@ -461,6 +469,9 @@ class AsrHermesMqtt(HermesClient):
             audio_data = info.audio_buffer
 
         if not info.result_sent:
+            # Send recording finished message
+            yield AsrRecordingFinished(site_id=site_id, session_id=session_id)
+
             # Avoid re-sending transcription
             info.result_sent = True
 
