@@ -12,7 +12,6 @@ from queue import Queue
 import networkx as nx
 import rhasspynlu
 from rhasspynlu.g2p import PronunciationsType
-from rhasspysilence import VoiceCommandRecorder, WebRtcVadRecorder
 
 import rhasspyasr_kaldi
 from rhasspyasr import Transcriber, Transcription
@@ -34,6 +33,7 @@ from rhasspyhermes.audioserver import AudioFrame, AudioSessionFrame
 from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
+from rhasspysilence import SilenceMethod, VoiceCommandRecorder, WebRtcVadRecorder
 
 from . import utils
 
@@ -111,6 +111,10 @@ class AsrHermesMqtt(HermesClient):
         silence_seconds: float = 0.5,
         before_seconds: float = 0.5,
         vad_mode: int = 3,
+        max_energy: typing.Optional[float] = None,
+        max_current_energy_ratio_threshold: typing.Optional[float] = None,
+        current_energy_threshold: typing.Optional[float] = None,
+        silence_method: SilenceMethod = SilenceMethod.VAD_ONLY,
         session_result_timeout: float = 20,
         reuse_transcribers: bool = False,
         spn_phone: str = "SPN",
@@ -202,6 +206,10 @@ class AsrHermesMqtt(HermesClient):
                 speech_seconds=speech_seconds,
                 silence_seconds=silence_seconds,
                 before_seconds=before_seconds,
+                silence_method=silence_method,
+                current_energy_threshold=current_energy_threshold,
+                max_energy=max_energy,
+                max_current_ratio_threshold=max_current_energy_ratio_threshold,
             )
 
         self.recorder_factory = recorder_factory or make_webrtcvad
