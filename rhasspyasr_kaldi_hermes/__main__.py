@@ -133,6 +133,11 @@ def get_args() -> argparse.Namespace:
         help="Minimum number of seconds for a voice command",
     )
     parser.add_argument(
+        "--voice-max-seconds",
+        type=float,
+        help="Maximum number of seconds for a voice command (default: none)",
+    )
+    parser.add_argument(
         "--voice-speech-seconds",
         type=float,
         default=0.3,
@@ -257,6 +262,7 @@ def run_mqtt(args: argparse.Namespace):
         mixed_language_model_fst=args.mixed_language_model_fst,
         skip_seconds=args.voice_skip_seconds,
         min_seconds=args.voice_min_seconds,
+        max_seconds=args.voice_max_seconds,
         speech_seconds=args.voice_speech_seconds,
         silence_seconds=args.voice_silence_seconds,
         before_seconds=args.voice_before_seconds,

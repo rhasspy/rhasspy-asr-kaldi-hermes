@@ -107,6 +107,7 @@ class AsrHermesMqtt(HermesClient):
         ] = None,
         skip_seconds: float = 0.0,
         min_seconds: float = 1.0,
+        max_seconds: typing.Optional[float] = None,
         speech_seconds: float = 0.3,
         silence_seconds: float = 0.5,
         before_seconds: float = 0.5,
@@ -115,7 +116,6 @@ class AsrHermesMqtt(HermesClient):
         max_current_energy_ratio_threshold: typing.Optional[float] = None,
         current_energy_threshold: typing.Optional[float] = None,
         silence_method: SilenceMethod = SilenceMethod.VAD_ONLY,
-        session_result_timeout: float = 20,
         reuse_transcribers: bool = False,
         spn_phone: str = "SPN",
     ):
@@ -188,8 +188,8 @@ class AsrHermesMqtt(HermesClient):
         self.enabled = enabled
         self.disabled_reasons: typing.Set[str] = set()
 
-        # Seconds to wait for a result from transcriber thread
-        self.session_result_timeout = session_result_timeout
+        # Seconds to wait for a result from a finished transcriber thread
+        self.session_result_timeout = 20
 
         # Required audio format
         self.sample_rate = sample_rate
@@ -199,7 +199,7 @@ class AsrHermesMqtt(HermesClient):
         # No timeout on silence detection
         def make_webrtcvad():
             return WebRtcVadRecorder(
-                max_seconds=None,
+                max_seconds=max_seconds,
                 vad_mode=vad_mode,
                 skip_seconds=skip_seconds,
                 min_seconds=min_seconds,
