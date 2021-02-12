@@ -118,6 +118,7 @@ class AsrHermesMqtt(HermesClient):
         silence_method: SilenceMethod = SilenceMethod.VAD_ONLY,
         reuse_transcribers: bool = False,
         spn_phone: str = "SPN",
+        lang: typing.Optional[str] = None,
     ):
         super().__init__(
             "rhasspyasr_kaldi_hermes",
@@ -219,6 +220,8 @@ class AsrHermesMqtt(HermesClient):
         self.free_transcribers: typing.List[TranscriberInfo] = []
 
         self.first_audio: bool = True
+
+        self.lang = lang
 
     # -------------------------------------------------------------------------
 
@@ -504,7 +507,7 @@ class AsrHermesMqtt(HermesClient):
                         seconds=transcription.transcribe_seconds,
                         site_id=site_id,
                         session_id=session_id,
-                        lang=info.start_listening.lang,
+                        lang=(info.start_listening.lang or self.lang),
                     )
                 )
             else:
@@ -515,7 +518,7 @@ class AsrHermesMqtt(HermesClient):
                     seconds=0,
                     site_id=site_id,
                     session_id=session_id,
-                    lang=info.start_listening.lang,
+                    lang=(info.start_listening.lang or self.lang),
                 )
 
             if info.start_listening.send_audio_captured:
