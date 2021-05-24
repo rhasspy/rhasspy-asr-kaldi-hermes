@@ -119,7 +119,7 @@ def get_args() -> argparse.Namespace:
         help="Path to write mixed langauge model FST (training, mixed)",
     )
 
-    parser.add_argument("--lang", help="Set lang in hotword detected message")
+    parser.add_argument("--lang", help="Set lang in outgoing messages")
 
     # Silence detection
     parser.add_argument(
