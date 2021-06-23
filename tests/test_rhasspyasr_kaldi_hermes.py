@@ -11,6 +11,7 @@ from rhasspyasr import Transcription
 from rhasspyhermes.asr import (
     AsrAudioCaptured,
     AsrError,
+    AsrRecordingFinished,
     AsrStartListening,
     AsrStopListening,
     AsrTextCaptured,
@@ -86,7 +87,7 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
             send_audio_captured=True,
         )
         result = None
-        async for response in self.hermes.on_message(start_listening):
+        async for response in self.hermes.on_message_blocking(start_listening):
             result = response
 
         # No response expected
@@ -95,7 +96,9 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         # Send in "audio"
         fake_wav_bytes = self.hermes.to_wav_bytes(secrets.token_bytes(100))
         fake_frame = AudioFrame(wav_bytes=fake_wav_bytes)
-        async for response in self.hermes.on_message(fake_frame, site_id=self.site_id):
+        async for response in self.hermes.on_message_blocking(
+            fake_frame, site_id=self.site_id
+        ):
             result = response
 
         # No response expected
@@ -107,13 +110,14 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         )
 
         results = []
-        async for response in self.hermes.on_message(stop_listening):
+        async for response in self.hermes.on_message_blocking(stop_listening):
             results.append(response)
 
         # Check results
         self.assertEqual(
             results,
             [
+                AsrRecordingFinished(site_id=self.site_id, session_id=self.session_id),
                 AsrTextCaptured(
                     text=fake_transcription.text,
                     likelihood=fake_transcription.likelihood,
@@ -148,7 +152,7 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
             site_id=self.site_id, session_id=self.session_id, stop_on_silence=False
         )
         result = None
-        async for response in self.hermes.on_message(start_listening):
+        async for response in self.hermes.on_message_blocking(start_listening):
             result = response
 
         # No response expected
@@ -157,7 +161,9 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         # Send in "audio"
         fake_wav_bytes = self.hermes.to_wav_bytes(secrets.token_bytes(100))
         fake_frame = AudioFrame(wav_bytes=fake_wav_bytes)
-        async for response in self.hermes.on_message(fake_frame, site_id=self.site_id):
+        async for response in self.hermes.on_message_blocking(
+            fake_frame, site_id=self.site_id
+        ):
             result = response
 
         # No response expected
@@ -169,20 +175,21 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         )
 
         results = []
-        async for response in self.hermes.on_message(stop_listening):
+        async for response in self.hermes.on_message_blocking(stop_listening):
             results.append(response)
 
         # Check results for empty transcription
         self.assertEqual(
             results,
             [
+                AsrRecordingFinished(site_id=self.site_id, session_id=self.session_id),
                 AsrTextCaptured(
                     text="",
                     likelihood=0,
                     seconds=0,
                     site_id=self.site_id,
                     session_id=self.session_id,
-                )
+                ),
             ],
         )
 
@@ -219,7 +226,7 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
             send_audio_captured=False,
         )
         result = None
-        async for response in self.hermes.on_message(start_listening):
+        async for response in self.hermes.on_message_blocking(start_listening):
             result = response
 
         # No response expected
@@ -232,7 +239,7 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         with open(wav_path, "rb") as wav_file:
             for wav_bytes in AudioFrame.iter_wav_chunked(wav_file, 4096):
                 frame = AudioFrame(wav_bytes=wav_bytes)
-                async for response in self.hermes.on_message(
+                async for response in self.hermes.on_message_blocking(
                     frame, site_id=self.site_id
                 ):
                     results.append(response)
@@ -241,13 +248,14 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
         self.assertEqual(
             results,
             [
+                AsrRecordingFinished(site_id=self.site_id, session_id=self.session_id),
                 AsrTextCaptured(
                     text=fake_transcription.text,
                     likelihood=fake_transcription.likelihood,
                     seconds=fake_transcription.transcribe_seconds,
                     site_id=self.site_id,
                     session_id=self.session_id,
-                )
+                ),
             ],
         )
 
@@ -263,7 +271,9 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
         # Send in training request
         result = None
-        async for response in self.hermes.on_message(train, site_id=self.site_id):
+        async for response in self.hermes.on_message_blocking(
+            train, site_id=self.site_id
+        ):
             result = response
 
         self.assertEqual(
@@ -285,7 +295,9 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
         # Send in training request
         result = None
-        async for response in self.hermes.on_message(train, site_id=self.site_id):
+        async for response in self.hermes.on_message_blocking(
+            train, site_id=self.site_id
+        ):
             result = response
 
         self.assertIsInstance(result, AsrError)
@@ -322,7 +334,7 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
             # Send in request
             result = None
-            async for response in self.hermes.on_message(pronounce):
+            async for response in self.hermes.on_message_blocking(pronounce):
                 result = response
 
         expected_prons = [
@@ -365,7 +377,7 @@ class RhasspyAsrKaldiHermesTestCase(unittest.TestCase):
 
             # Send in request
             result = None
-            async for response in self.hermes.on_message(pronounce):
+            async for response in self.hermes.on_message_blocking(pronounce):
                 result = response
 
         self.assertIsInstance(result, G2pError)
