@@ -6,7 +6,6 @@ import typing
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
-
 import rhasspyhermes.cli as hermes_cli
 from rhasspyasr_kaldi import KaldiCommandLineTranscriber
 from rhasspyasr_kaldi.train import LanguageModelType

@@ -10,10 +10,8 @@ from pathlib import Path
 from queue import Queue
 
 import networkx as nx
-import rhasspynlu
-from rhasspynlu.g2p import PronunciationsType
-
 import rhasspyasr_kaldi
+import rhasspynlu
 from rhasspyasr import Transcriber, Transcription
 from rhasspyasr_kaldi.train import LanguageModelType
 from rhasspyhermes.asr import (
@@ -34,6 +32,7 @@ from rhasspyhermes.base import Message
 from rhasspyhermes.client import GeneratorType, HermesClient, TopicArgs
 from rhasspyhermes.g2p import G2pError, G2pPhonemes, G2pPronounce, G2pPronunciation
 from rhasspyhermes.nlu import AsrToken, AsrTokenTime
+from rhasspynlu.g2p import PronunciationsType
 from rhasspysilence import SilenceMethod, VoiceCommandRecorder, WebRtcVadRecorder
 
 from . import utils
