@@ -118,6 +118,11 @@ class AsrHermesMqtt(HermesClient):
         silence_method: SilenceMethod = SilenceMethod.VAD_ONLY,
         reuse_transcribers: bool = False,
         spn_phone: str = "SPN",
+        sil_phone: str = "SIL",
+        allow_unknown_words: bool = False,
+        frequent_words: typing.Optional[typing.Set[str]] = None,
+        unknown_words_probability: float = 1e-10,
+        silence_probability: float = 0.5,
         lang: typing.Optional[str] = None,
     ):
         super().__init__(
@@ -184,6 +189,15 @@ class AsrHermesMqtt(HermesClient):
 
         # Phone used for spoken noise (<unk>)
         self.spn_phone = spn_phone
+
+        # Phone used for silence (<sil>)
+        self.sil_phone = sil_phone
+
+        # Used to produce alternative unknown word paths
+        self.frequent_words = frequent_words
+        self.allow_unknown_words = allow_unknown_words
+        self.unknown_words_probability = unknown_words_probability
+        self.silence_probability = silence_probability
 
         # True if ASR system is enabled
         self.enabled = enabled
@@ -615,6 +629,11 @@ class AsrHermesMqtt(HermesClient):
                     base_language_model_weight=self.base_language_model_weight,
                     mixed_language_model_fst=self.mixed_language_model_fst,
                     spn_phone=self.spn_phone,
+                    sil_phone=self.sil_phone,
+                    allow_unknown_words=self.allow_unknown_words,
+                    frequent_words=self.frequent_words,
+                    unk_prob=self.unknown_words_probability,
+                    sil_prob=self.silence_probability,
                 )
             else:
                 _LOGGER.warning("Not overwriting HCLG.fst")

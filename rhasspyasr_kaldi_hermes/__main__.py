@@ -92,6 +92,11 @@ def get_args() -> argparse.Namespace:
         help="Spoken noise phone name used for <unk> (default: SPN)",
     )
     parser.add_argument(
+        "--sil-phone",
+        default="SIL",
+        help="Silence phone name used for <sil> (default: SIL)",
+    )
+    parser.add_argument(
         "--no-overwrite-train",
         action="store_true",
         help="Don't overwrite HCLG.fst during training",
@@ -116,6 +121,28 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--mixed-language-model-fst",
         help="Path to write mixed langauge model FST (training, mixed)",
+    )
+
+    # Unknown words
+    parser.add_argument(
+        "--frequent-words", help="Path to file with frequently-used words"
+    )
+    parser.add_argument(
+        "--allow-unknown-words",
+        action="store_true",
+        help="Enable alternative paths in text_fst grammar to produce <unk> words",
+    )
+    parser.add_argument(
+        "--unknown-words-probability",
+        type=float,
+        default=1e-10,
+        help="Probability of unknown words (default: 1e-10)",
+    )
+    parser.add_argument(
+        "--silence-probability",
+        type=float,
+        default=0.5,
+        help="Probability of silence (default: 0.5)",
     )
 
     parser.add_argument("--lang", help="Set lang in outgoing messages")
@@ -227,6 +254,21 @@ def run_mqtt(args: argparse.Namespace):
     if args.mixed_language_model_fst:
         args.mixed_language_model_fst = Path(args.mixed_language_model_fst)
 
+    # Load frequent words
+    frequent_words: typing.Optional[typing.Set[str]] = None
+    if args.frequent_words:
+        args.frequent_words = Path(args.frequent_words)
+
+        if args.frequent_words.is_file():
+            frequent_words = set()
+
+            _LOGGER.debug("Loading frequent words from %s", args.frequent_words)
+            with open(args.frequent_words, "r") as frequent_words_file:
+                for line in frequent_words_file:
+                    line = line.strip()
+                    if line:
+                        frequent_words.add(line)
+
     # Load transciber
     _LOGGER.debug(
         "Loading Kaldi model from %s (graph=%s)",
@@ -273,7 +315,12 @@ def run_mqtt(args: argparse.Namespace):
         max_energy=args.voice_max_energy,
         max_current_energy_ratio_threshold=args.voice_max_current_energy_ratio_threshold,
         reuse_transcribers=args.reuse_transcribers,
+        sil_phone=args.sil_phone,
         spn_phone=args.spn_phone,
+        allow_unknown_words=args.allow_unknown_words,
+        frequent_words=frequent_words,
+        unknown_words_probability=args.unknown_words_probability,
+        silence_probability=args.silence_probability,
         site_ids=args.site_id,
         lang=args.lang,
     )
