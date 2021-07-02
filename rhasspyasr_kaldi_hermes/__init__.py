@@ -122,6 +122,7 @@ class AsrHermesMqtt(HermesClient):
         allow_unknown_words: bool = False,
         frequent_words: typing.Optional[typing.Set[str]] = None,
         unknown_words_probability: float = 1e-10,
+        unknown_token: str = "<unk>",
         silence_probability: float = 0.5,
         lang: typing.Optional[str] = None,
     ):
@@ -197,6 +198,7 @@ class AsrHermesMqtt(HermesClient):
         self.frequent_words = frequent_words
         self.allow_unknown_words = allow_unknown_words
         self.unknown_words_probability = unknown_words_probability
+        self.unknown_token = unknown_token
         self.silence_probability = silence_probability
 
         # True if ASR system is enabled
@@ -634,6 +636,7 @@ class AsrHermesMqtt(HermesClient):
                     frequent_words=self.frequent_words,
                     unk_prob=self.unknown_words_probability,
                     sil_prob=self.silence_probability,
+                    unknown_token=self.unknown_token,
                 )
             else:
                 _LOGGER.warning("Not overwriting HCLG.fst")

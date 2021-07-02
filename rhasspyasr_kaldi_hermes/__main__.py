@@ -146,6 +146,11 @@ def get_args() -> argparse.Namespace:
         help="Probability of unknown words (default: 1e-10)",
     )
     parser.add_argument(
+        "--unknown-token",
+        default="<unk>",
+        help="Word/token produced when an unknown word is encountered (default: <unk>)",
+    )
+    parser.add_argument(
         "--silence-probability",
         type=float,
         default=0.5,
@@ -330,6 +335,7 @@ def run_mqtt(args: argparse.Namespace):
         allow_unknown_words=args.allow_unknown_words,
         frequent_words=frequent_words,
         unknown_words_probability=args.unknown_words_probability,
+        unknown_token=args.unknown_token,
         silence_probability=args.silence_probability,
         site_ids=args.site_id,
         lang=args.lang,
