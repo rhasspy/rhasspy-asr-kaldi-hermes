@@ -125,7 +125,14 @@ def get_args() -> argparse.Namespace:
 
     # Unknown words
     parser.add_argument(
-        "--frequent-words", help="Path to file with frequently-used words"
+        "--frequent-words",
+        help="Path to file with frequently-used words (used for unknown words)",
+    )
+    parser.add_argument(
+        "--max-frequent-words",
+        type=int,
+        default=100,
+        help="Maximum number of frequent words to load",
     )
     parser.add_argument(
         "--allow-unknown-words",
@@ -268,6 +275,9 @@ def run_mqtt(args: argparse.Namespace):
                     line = line.strip()
                     if line:
                         frequent_words.add(line)
+
+                    if len(frequent_words) >= args.max_frequent_words:
+                        break
 
     # Load transciber
     _LOGGER.debug(
