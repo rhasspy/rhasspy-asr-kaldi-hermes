@@ -135,6 +135,12 @@ def get_args() -> argparse.Namespace:
         help="Maximum number of frequent words to load",
     )
     parser.add_argument(
+        "--max-unknown-words",
+        type=int,
+        default=8,
+        help="Maximum number of unknown words in a row for catching misspoken sentences (--allow-unknown-words)",
+    )
+    parser.add_argument(
         "--allow-unknown-words",
         action="store_true",
         help="Enable alternative paths in text_fst grammar to produce <unk> words",
@@ -142,8 +148,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--unknown-words-probability",
         type=float,
-        default=1e-10,
-        help="Probability of unknown words (default: 1e-10)",
+        default=1e-5,
+        help="Probability of unknown words (default: 1e-5)",
     )
     parser.add_argument(
         "--unknown-token",
@@ -155,6 +161,16 @@ def get_args() -> argparse.Namespace:
         type=float,
         default=0.5,
         help="Probability of silence (default: 0.5)",
+    )
+    parser.add_argument(
+        "--cancel-probability",
+        type=float,
+        default=1e-2,
+        help="Probability of cancel word (default: 1e-2)",
+    )
+    parser.add_argument(
+        "--cancel-word",
+        help="Word used to cancel an intent at any time (emits --unknown-token)",
     )
 
     parser.add_argument("--lang", help="Set lang in outgoing messages")
@@ -336,7 +352,10 @@ def run_mqtt(args: argparse.Namespace):
         frequent_words=frequent_words,
         unknown_words_probability=args.unknown_words_probability,
         unknown_token=args.unknown_token,
+        max_unknown_words=args.max_unknown_words,
         silence_probability=args.silence_probability,
+        cancel_word=args.cancel_word,
+        cancel_probability=args.cancel_probability,
         site_ids=args.site_id,
         lang=args.lang,
     )
